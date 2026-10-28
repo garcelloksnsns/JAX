@@ -9,7 +9,7 @@ const inter = Inter({ subsets: ["latin"], variable: "--font-body", display: "swa
 
 export const metadata: Metadata = {
   title: "JAX · Cognitive OS",
-  description: "Interface de comando para o assistente autônomo JAX.",
+  description: "Seu espaço de conversa com JAX: esfera interativa, comandos por texto e voz e janelas controláveis. Ferramentas locais disponíveis mediante conexão e autorização.",
   generator: "JAX / v0",
 }
 

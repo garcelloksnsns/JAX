@@ -1,160 +1,178 @@
 "use client"
 
-import { useState, type FormEvent, type PointerEvent } from "react"
-import {
-  CalendarDays,
-  ChevronLeft,
-  ChevronRight,
-  CloudSun,
-  Command,
-  ExternalLink,
-  FolderGit2,
-  Grid2X2,
-  Mail,
-  Maximize2,
-  Menu,
-  MessageSquareText,
-  Minimize2,
-  Minus,
-  MoreHorizontal,
-  Newspaper,
-  PanelLeft,
-  Play,
-  Plus,
-  Search,
-  Settings2,
-  Sparkles,
-  TerminalSquare,
-  Volume2,
-  Waves,
-  X,
-  Zap,
-} from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { ParticleOrb, type OrbState } from "@/components/particle-orb"
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
+import { ArrowUp, AudioLines, ChevronLeft, ExternalLink, Mic, PanelLeft, Square, X } from "lucide-react"
+import { ParticleOrb } from "@/components/particle-orb"
+import { JaxWindow, type JaxWindowState, type WindowPatch } from "@/components/jax-window"
+import { useJaxVoice } from "@/hooks/use-jax-voice"
+import { capabilities, JaxCapabilityContent } from "@/components/jax-capabilities"
 
-type WindowId = "weather" | "news" | "youtube" | "codex" | "email"
-type AppWindowState = { id: WindowId; x: number; y: number; width: number; height: number; minimized: boolean; maximized: boolean; z: number }
-type Message = { role: "user" | "jax"; text: string; time: string }
-
-const initialWindows: AppWindowState[] = [
-  { id: "weather", x: 30, y: 26, width: 270, height: 196, minimized: false, maximized: false, z: 5 },
-  { id: "news", x: 320, y: 52, width: 330, height: 270, minimized: false, maximized: false, z: 4 },
-  { id: "codex", x: 160, y: 340, width: 390, height: 220, minimized: true, maximized: false, z: 3 },
-]
-
-const windowMeta = {
-  weather: { title: "Clima de hoje", subtitle: "Pesquisa contextual", icon: CloudSun, color: "amber" },
-  news: { title: "Notícias", subtitle: "Busca personalizada", icon: Newspaper, color: "cyan" },
-  youtube: { title: "YouTube", subtitle: "Mídia aberta por comando", icon: Play, color: "red" },
-  codex: { title: "Codex + GitHub", subtitle: "Projeto em análise", icon: TerminalSquare, color: "violet" },
-  email: { title: "Novo e-mail", subtitle: "Rascunho preparado", icon: Mail, color: "green" },
-} as const
-
-const navItems = [[Command, "Conversa"], [Grid2X2, "Janelas"], [FolderGit2, "GitHub"], [CalendarDays, "Agenda"]] as const
-const starterMessages: Message[] = [{ role: "jax", text: "Estou pronto. Diga o que você quer abrir, pesquisar ou executar.", time: "agora" }]
+type Message = { id: string; role: "user" | "jax"; text: string }
+type Resource = { id: string; title: string; query: string; url?: string; embedUrl?: string }
+const normalize = (text: string) => text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
+const safeUrl = (value: unknown) => { try { const url = new URL(String(value)); return url.protocol === "https:" ? url.href : undefined } catch { return undefined } }
 
 export function JaxWorkspace() {
-  const [orbState, setOrbState] = useState<OrbState>("idle")
-  const [activePanel, setActivePanel] = useState("Conversa")
-  const [isListening, setIsListening] = useState(false)
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
-  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false)
-  const [windows, setWindows] = useState(initialWindows)
-  const [messages, setMessages] = useState(starterMessages)
+  const [sidebar, setSidebar] = useState(false)
+  const [windows, setWindows] = useState<JaxWindowState[]>([])
+  const [messages, setMessages] = useState<Message[]>([])
   const [draft, setDraft] = useState("")
-  const [dragging, setDragging] = useState<{ id: WindowId; dx: number; dy: number } | null>(null)
-  const [maxZ, setMaxZ] = useState(5)
+  const [processing, setProcessing] = useState(false)
+  const [noticeVisible, setNoticeVisible] = useState(false)
+  const [dialogPosition, setDialogPosition] = useState({ x: 24, y: 78 })
+  const desktop = useRef<HTMLDivElement>(null)
+  const transcript = useRef<HTMLDivElement>(null)
+  const z = useRef(2)
+  const responseTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const full = windows.some((item) => item.maximized && !item.minimized)
+  const latest = messages.filter((message) => message.role === "jax").at(-1)
 
-  const statusCopy = { idle: "Pronto para agir", listening: "Ouvindo você", thinking: "Entendendo o pedido", speaking: "Respondendo" }[orbState]
-  const visibleWindows = windows.filter((item) => !item.minimized)
+  const respond = useCallback((text: string) => {
+    setProcessing(false)
+    setMessages((items) => [...items.slice(-49), { id: crypto.randomUUID(), role: "jax", text }])
+    setNoticeVisible(true)
+    if (noticeTimer.current) clearTimeout(noticeTimer.current)
+    noticeTimer.current = setTimeout(() => setNoticeVisible(false), 10000)
+  }, [])
 
-  function animateResponse() {
-    setOrbState("thinking")
-    window.setTimeout(() => setOrbState("speaking"), 700)
-    window.setTimeout(() => setOrbState("idle"), 2200)
-  }
+  const open = useCallback((resource: Resource, maximized = false) => {
+    const bounds = desktop.current?.getBoundingClientRect()
+    const availableWidth = bounds?.width ?? 900
+    const availableHeight = bounds?.height ?? 650
+    const width = Math.min(660, availableWidth - 32)
+    const usableHeight = availableHeight * 0.55
+    const height = Math.max(160, Math.min(410, usableHeight - 24))
+    const nextZ = ++z.current
+    setWindows((items) => [
+      ...items.filter((item) => item.id !== resource.id).map((item) => ({ ...item, minimized: true, maximized: false })),
+      { ...resource, x: Math.max(8, (availableWidth - width) / 2), y: Math.max(8, (usableHeight - height) / 2), width, height, z: nextZ, minimized: false, maximized },
+    ])
+  }, [])
 
-  function focusWindow(id: WindowId) {
-    const nextZ = maxZ + 1
-    setMaxZ(nextZ)
-    setWindows((items) => items.map((item) => item.id === id ? { ...item, z: nextZ } : item))
-  }
+  const patch = useCallback((id: string, update: WindowPatch) => {
+    setWindows((items) => items.map((item) => item.id === id ? { ...item, ...update } : update.maximized ? { ...item, minimized: true, maximized: false } : item))
+  }, [])
 
-  function openWindow(id: WindowId, maximize = false) {
-    const nextZ = maxZ + 1
-    setMaxZ(nextZ)
-    setWindows((items) => {
-      const existing = items.find((item) => item.id === id)
-      if (existing) return items.map((item) => item.id === id ? { ...item, minimized: false, maximized: maximize, z: nextZ } : item)
-      const index = items.length
-      return [...items, { id, x: 30 + (index * 28) % 210, y: 24 + (index * 24) % 170, width: id === "codex" ? 390 : 320, height: id === "weather" ? 196 : 245, minimized: false, maximized: maximize, z: nextZ }]
-    })
-  }
-
-  function minimizeWindow(id: WindowId) { setWindows((items) => items.map((item) => item.id === id ? { ...item, minimized: true, maximized: false } : item)) }
-  function closeWindow(id: WindowId) { setWindows((items) => items.filter((item) => item.id !== id)) }
-
-  function submitCommand(event?: FormEvent) {
-    event?.preventDefault()
-    const text = draft.trim()
+  function execute(raw: string) {
+    const text = raw.trim()
     if (!text) return
-    const lower = text.toLowerCase()
-    let response = "Entendi. Vou preparar essa ação para a ponte do Codex."
-    let windowId: WindowId | null = null
-    let maximize = false
-    if (lower.includes("clima") || lower.includes("tempo")) { windowId = "weather"; response = "Abri o clima de hoje no centro. A janela pode ser movida ou minimizada." }
-    else if (lower.includes("notícia") || lower.includes("noticias") || lower.includes("pesquisa") || lower.includes("pesquisar")) { windowId = "news"; response = "Abri uma busca de notícias. O backend poderá aplicar suas preferências e atualizar os resultados." }
-    else if (lower.includes("youtube") || lower.includes("vídeo") || lower.includes("video")) { windowId = "youtube"; response = "Abri uma janela de mídia para o vídeo solicitado. O Codex poderá resolver a URL real." }
-    else if (lower.includes("github") || lower.includes("projeto") || lower.includes("codex")) { windowId = "codex"; response = "Abri o Codex com a ponte do GitHub. O backend poderá ler o repositório autorizado e trazer um resumo." }
-    else if (lower.includes("e-mail") || lower.includes("email")) { windowId = "email"; response = "Preparei a janela de e-mail. O envio só acontece depois que o backend validar destinatário e conteúdo." }
-    if (lower.includes("tela cheia") || lower.includes("tela cheia")) maximize = true
-    setMessages((items) => [...items, { role: "user", text, time: "agora" }, { role: "jax", text: response, time: "agora" }])
     setDraft("")
-    animateResponse()
-    if (windowId) openWindow(windowId, maximize)
+    setMessages((items) => [...items.slice(-49), { id: crypto.randomUUID(), role: "user", text }])
+    setProcessing(true)
+    const command = normalize(text)
+    const target = [...windows].reverse().find((item) => command.includes(normalize(item.title)) || command.includes(item.id)) ?? [...windows].reverse().find((item) => !item.minimized)
+    const finish = (message: string) => { if (responseTimer.current) clearTimeout(responseTimer.current); responseTimer.current = setTimeout(() => respond(message), 200) }
+    if (/^(pare|parar|cancele|cancelar)(\b|$)/.test(command)) { voice.stop(); setProcessing(false); finish("Escuta interrompida. Nenhuma ação externa está em execução."); return }
+    if (/todas|tudo/.test(command) && /fech|minimiz|restaur|organiz/.test(command)) {
+      if (/fech/.test(command)) setWindows([])
+      else if (/minimiz/.test(command)) setWindows((items) => items.map((item) => ({ ...item, minimized: true, maximized: false })))
+      else {
+        const bounds = desktop.current?.getBoundingClientRect()
+        const width = (bounds?.width ?? 800) - 24
+        const height = (bounds?.height ?? 500) - 80
+        const count = windows.length
+        const columns = Math.max(1, Math.min(count, Math.floor(width / 240)))
+        const rows = Math.max(1, Math.ceil(count / columns))
+        if (width / columns < 220 || height / rows < 160) {
+          setWindows((items) => items.map((item, index) => ({ ...item, minimized: index !== items.length - 1, maximized: false })))
+          finish("Não há espaço para todas sem sobreposição. Deixei a última visível e as demais no dock.")
+          return
+        }
+        setWindows((items) => items.map((item, index) => ({ ...item, minimized: false, maximized: false, x: 12 + (index % columns) * width / columns, y: 60 + Math.floor(index / columns) * height / rows, width: width / columns - 8, height: height / rows - 8 })))
+      }
+      finish(/fech/.test(command) ? "Fechei todas as janelas do JAX." : /minimiz/.test(command) ? "Minimizei todas as janelas do JAX. Elas continuam no dock." : "Organizei as janelas do JAX dentro da área disponível.")
+      return
+    }
+    if (/fech(e|ar|a)|minimiz|tela cheia|maximiz|restaur/.test(command) && target && !/https:|youtube|video/.test(command)) {
+      if (/fech(e|ar|a)/.test(command)) setWindows((items) => items.filter((item) => item.id !== target.id))
+      else patch(target.id, { minimized: command.includes("minimiz"), maximized: /tela cheia|maximiz/.test(command) })
+      finish(`Janela ${target.title} ${/fech/.test(command) ? "fechada" : /minimiz/.test(command) ? "minimizada" : /restaur/.test(command) ? "restaurada" : "em tela cheia"}.`)
+      return
+    }
+    const urlMatch = text.match(/https:\/\/[^\s]+/)
+    let videoId: string | null = null
+    if (urlMatch) { try { const url = new URL(urlMatch[0]); if (["www.youtube.com", "youtube.com", "m.youtube.com"].includes(url.hostname)) videoId = url.searchParams.get("v") ?? url.pathname.match(/^\/(?:shorts|embed)\/([\w-]+)/)?.[1] ?? null; if (url.hostname === "youtu.be") videoId = url.pathname.slice(1) } catch { /* URLs inválidas não são incorporadas. */ } }
+    if (videoId && /^[\w-]{11}$/.test(videoId)) {
+      open({ id: "youtube", title: "YouTube", query: "Vídeo", url: `https://www.youtube.com/watch?v=${videoId}`, embedUrl: `https://www.youtube-nocookie.com/embed/${videoId}` }, command.includes("tela cheia"))
+      finish("Abri o vídeo. Você pode reproduzir, redimensionar e fechar a janela; a reprodução depende da permissão de incorporação do YouTube.")
+    } else if (/terminal|exclu|apagar|pastas?|arquivos?|documentos?|pdf|word|clicar|minha tela|ver.*tela|compartilh.*tela|navegador.*control/.test(command)) {
+      const id = /minha tela|ver.*tela|compartilh.*tela/.test(command) ? "screen" : /terminal/.test(command) ? "terminal" : /pdf|word/.test(command) ? "documents" : /exclu|apagar/.test(command) ? "delete" : /clicar|navegador/.test(command) ? "browser-control" : "files"
+      const capability = capabilities.find((item) => item.id === id)!
+      open({ id, title: capability.title, query: text })
+      finish(id === "screen" ? "Abri o compartilhamento de tela. Clique em escolher tela ou janela para conceder acesso; não há análise por IA ou controle remoto conectado." : "Abri o painel solicitado. Você pode preparar a ação, mas o serviço local ainda não está conectado: não executei comandos nem alterei arquivos.")
+    } else if (/e-mail|email|enviar mensagem/.test(command)) {
+      open({ id: "email", title: "E-mail", query: text, url: "https://mail.google.com/mail/u/0/#inbox" })
+      finish("Abri o acesso ao e-mail. Não enviei nenhuma mensagem: envio exige autenticação no backend e sua confirmação do destinatário e conteúdo.")
+    } else if (/youtube|video/.test(command)) {
+      const query = text.replace(/^(ei\s+)?jax[,\s]*/i, "").replace(/^(abre|abra|abrir|busque|pesquise)\s+/i, "")
+      open({ id: "youtube", title: "YouTube", query, url: `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}` }, command.includes("tela cheia"))
+      finish("Preparei a pesquisa no YouTube. Abra o resultado pelo botão da janela; cole um link de vídeo aqui para reproduzi-lo no JAX.")
+    } else if (/github|codex|chatgpt|chat de apt/.test(command)) {
+      if (command.includes("github")) open({ id: "github", title: "GitHub", query: text, url: "https://github.com/" })
+      if (command.includes("codex")) open({ id: "codex", title: "Codex", query: text, url: "https://chatgpt.com/codex" })
+      if (/chatgpt|chat de apt/.test(command)) open({ id: "chatgpt", title: "ChatGPT", query: text, url: "https://chatgpt.com/" })
+      finish("Preparei os acessos solicitados. As janelas anteriores estão minimizadas. Ler seu projeto ou operar esses serviços depende da integração autenticada do backend; não fiz uma análise do repositório.")
+    } else if (/clima|noticia|pesquis|busc|google/.test(command)) {
+      const news = command.includes("noticia")
+      open({ id: news ? "news" : "search", title: news ? "Notícias" : "Pesquisa", query: text, url: news ? `https://news.google.com/search?q=${encodeURIComponent(text)}&hl=pt-BR&gl=BR&ceid=BR:pt-419` : `https://www.google.com/search?q=${encodeURIComponent(text)}` })
+      finish("Preparei sua pesquisa. Use o botão da janela para abrir os resultados reais no navegador. Ainda não posso ler ou resumir esses resultados sem o backend de busca.")
+    } else finish("Posso organizar as janelas, preparar pesquisas e incorporar um link do YouTube. Para entender pedidos livres e executar ferramentas, o backend do agente ainda precisa ser conectado. Não executei uma ação externa.")
+    window.dispatchEvent(new CustomEvent("jax:user-command", { detail: { text, timestamp: Date.now() } }))
   }
 
-  function startListening() {
-    setIsListening(true)
-    setOrbState("listening")
-    window.setTimeout(() => { setIsListening(false); setOrbState("idle") }, 3600)
-  }
+  const voice = useJaxVoice(execute, respond)
+  const state = voice.mode !== "off" ? "listening" : processing ? "thinking" : "idle"
 
-  function onWindowPointerDown(event: PointerEvent, id: WindowId) {
-    const target = event.currentTarget.parentElement?.getBoundingClientRect()
-    if (!target) return
-    focusWindow(id)
-    setDragging({ id, dx: event.clientX - target.left, dy: event.clientY - target.top })
-    event.currentTarget.setPointerCapture(event.pointerId)
-  }
-  function onWindowPointerMove(event: PointerEvent) {
-    if (!dragging) return
-    const workspace = event.currentTarget.getBoundingClientRect()
-    setWindows((items) => items.map((item) => item.id === dragging.id ? { ...item, x: Math.max(8, event.clientX - workspace.left - dragging.dx), y: Math.max(8, event.clientY - workspace.top - dragging.dy) } : item))
-  }
+  useEffect(() => { transcript.current?.scrollTo({ top: transcript.current.scrollHeight, behavior: "smooth" }) }, [messages])
+  useEffect(() => () => { if (responseTimer.current) clearTimeout(responseTimer.current); if (noticeTimer.current) clearTimeout(noticeTimer.current) }, [])
+  useEffect(() => {
+    function snapshot() {
+      window.dispatchEvent(new CustomEvent("jax:ui-snapshot", { detail: {
+        viewport: { width: desktop.current?.clientWidth, height: desktop.current?.clientHeight },
+        windows: windows.map(({ id, title, x, y, width, height, minimized, maximized, z }) => ({ id, title, x, y, width, height, minimized, maximized, z })),
+        elements: ["sidebar.toggle", "composer.input", "voice.single", "voice.continuous", "voice.stop", "dialog.dismiss", "window.open", "window.close", "window.minimize", "window.maximize", "window.restore", "window.move", "window.resize", "windows.arrange"],
+        capabilities: capabilities.map(({ id, title }) => ({ id, title, status: id === "screen" ? "permission-required" : "backend-required" })),
+        sidebarOpen: sidebar,
+        permissions: { localComputer: false, terminal: false, filesystem: false, browserAutomation: false },
+      } }))
+    }
+    function apply(event: Event) {
+      const detail = (event as CustomEvent).detail
+      if (!detail || typeof detail !== "object") return
+      const id = String(detail.id ?? "")
+      if (detail.action === "close") setWindows((items) => items.filter((item) => item.id !== id))
+      if (detail.action === "minimize") patch(id, { minimized: true, maximized: false })
+      if (detail.action === "maximize") patch(id, { maximized: true, minimized: false })
+      if (detail.action === "restore") patch(id, { maximized: false, minimized: false })
+      if (detail.action === "sidebar" && typeof detail.open === "boolean") setSidebar(detail.open)
+      if (detail.action === "move" || detail.action === "resize") {
+        const bounds = desktop.current?.getBoundingClientRect()
+        const item = windows.find((candidate) => candidate.id === id)
+        if (!bounds || !item || item.maximized) return
+        if (detail.action === "move" && Number.isFinite(detail.x) && Number.isFinite(detail.y)) patch(id, { x: Math.max(8, Math.min(bounds.width - item.width - 8, detail.x)), y: Math.max(8, Math.min(bounds.height - item.height - 8, detail.y)) })
+        if (detail.action === "resize" && Number.isFinite(detail.width) && Number.isFinite(detail.height)) patch(id, { width: Math.max(220, Math.min(bounds.width - item.x - 8, detail.width)), height: Math.max(160, Math.min(bounds.height - item.y - 8, detail.height)) })
+      }
+      if (detail.action === "reply" && typeof detail.text === "string") respond(detail.text.slice(0, 10000))
+      if (detail.action === "open" && id && typeof detail.title === "string") open({ id: id.slice(0, 100), title: detail.title.slice(0, 120), query: String(detail.query ?? ""), url: safeUrl(detail.url) })
+    }
+    window.addEventListener("jax:request-ui-snapshot", snapshot)
+    window.addEventListener("jax:ui-action", apply)
+    return () => { window.removeEventListener("jax:request-ui-snapshot", snapshot); window.removeEventListener("jax:ui-action", apply) }
+  }, [windows, patch, respond, open, sidebar])
 
-  return <main className="jax-app">
-    <div className="jax-noise" />
-    <header className="jax-topbar"><div className="flex items-center gap-3"><Button variant="ghost" size="icon" className="jax-icon-button lg:hidden" onClick={() => setIsMobileSidebarOpen(true)} aria-label="Abrir navegação"><Menu /></Button><div className="jax-brand-mark" aria-hidden="true"><span /></div><div><div className="jax-brand-name">JAX <span>/</span> PERSONAL OS</div><div className="jax-brand-subtitle">A camada de trabalho de Luiz</div></div></div><div className="jax-topbar-status"><span className="jax-live-dot" /><span>ONLINE</span><span className="jax-divider" /><span className="hidden sm:inline">{visibleWindows.length} JANELAS</span><Button variant="ghost" size="icon" className="jax-icon-button ml-2" aria-label="Abrir configurações"><Settings2 /></Button></div></header>
-    <div className={`jax-layout ${isSidebarCollapsed ? "sidebar-collapsed" : ""}`}>
-      <aside className={`jax-sidebar ${isSidebarCollapsed ? "is-collapsed" : ""} ${isMobileSidebarOpen ? "mobile-open" : ""}`}><div className="jax-sidebar-collapse"><Button variant="ghost" size="icon" className="jax-icon-button" onClick={() => setIsSidebarCollapsed((value) => !value)} aria-label={isSidebarCollapsed ? "Expandir barra lateral" : "Reduzir barra lateral"}>{isSidebarCollapsed ? <ChevronRight /> : <ChevronLeft />}</Button></div><div className="jax-side-section"><div className="jax-section-label">Navegar</div><nav className="flex flex-col gap-1" aria-label="Navegação principal">{navItems.map(([Icon, label]) => <button key={label} className={`jax-nav-item ${activePanel === label ? "is-active" : ""}`} onClick={() => { setActivePanel(label); setIsMobileSidebarOpen(false) }} title={label}><Icon /><span>{label}</span></button>)}</nav></div><div className="jax-side-section"><div className="flex items-center justify-between px-3 mb-2"><div className="jax-section-label mb-0">Janelas</div><Plus /></div><div className="flex flex-col gap-1">{windows.map((item) => { const meta = windowMeta[item.id]; const Icon = meta.icon; return <button key={item.id} className="jax-screen-item" onClick={() => openWindow(item.id)}><span className={`jax-screen-dot ${meta.color}`} /><Icon /><span>{meta.title}</span><MoreHorizontal className="ml-auto" /></button> })}</div></div><div className="mt-auto jax-side-footer"><div className="jax-memory-meter"><div className="flex items-center justify-between"><span>Contexto local</span><span>ativo</span></div><div className="jax-meter-track"><div /></div></div><button className="jax-user-card"><span className="jax-avatar">LS</span><span className="text-left"><strong>Luiz Souto</strong><small>Workspace pessoal</small></span></button></div></aside>
-      <section className="jax-main-column"><div className="jax-command-strip"><div className="flex items-center gap-2"><span className="jax-kicker">MODO</span><span className="jax-mode-pill"><Sparkles /> {activePanel}</span></div><div className="flex items-center gap-2"><span className="jax-kicker hidden md:inline">DESKTOP / LIVRE</span><Button variant="ghost" size="icon" className="jax-icon-button" onClick={() => openWindow("codex")} aria-label="Abrir Codex"><TerminalSquare /></Button><Button variant="ghost" size="icon" className="jax-icon-button" aria-label="Tela cheia"><Maximize2 /></Button></div></div><div className="jax-orb-stage"><div className="jax-orb-crosshair crosshair-left" /><div className="jax-orb-crosshair crosshair-right" /><ParticleOrb state={orbState} /><div className="jax-orb-caption"><span className="jax-status-pulse" />{statusCopy}</div><div className="jax-orb-readout"><span>ESTADO</span><strong>{orbState.toUpperCase()}</strong><span>HOVER / TOQUE</span></div></div><div className="jax-conversation"><div className="jax-conversation-head"><div><div className="jax-eyebrow"><Zap /> CONVERSA</div><h1>Fale com o JAX.</h1><p>Peça uma ação. Ele abre, move e organiza as telas por você.</p></div><Button className={`jax-listen-button ${isListening ? "is-active" : ""}`} onClick={startListening}><Waves /> {isListening ? "Ouvindo" : "Voz em breve"}</Button></div><div className="jax-transcript" aria-live="polite">{messages.slice(-4).map((message, index) => <div className={`jax-chat-line ${message.role}`} key={`${message.time}-${index}`}><span className="jax-chat-label">{message.role === "user" ? "VOCÊ" : "JAX"}</span><p>{message.text}</p><small>{message.time}</small></div>)}</div><form className="jax-composer" onSubmit={submitCommand}><textarea value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Ex.: Jax, abre as 5 melhores notícias sobre IA" aria-label="Comando para JAX" rows={2} /><div className="jax-composer-footer"><span className="jax-composer-hint">ENTER para executar · o backend entra pela ponte do Codex</span><div className="flex items-center gap-1"><Button type="button" variant="ghost" size="icon" className="jax-mic-button" onClick={startListening} aria-label="Preparar entrada de voz"><Volume2 /></Button><Button type="submit" size="icon" className="jax-send-button" aria-label="Executar comando"><ChevronRight /></Button></div></div></form><div className="jax-command-examples"><button onClick={() => setDraft("Jax, qual o clima de hoje?")}><CloudSun /> clima</button><button onClick={() => setDraft("Jax, abre as notícias sobre IA")}><Newspaper /> notícias</button><button onClick={() => setDraft("Jax, olha meu projeto no GitHub pelo Codex")}><FolderGit2 /> GitHub</button><button onClick={() => setDraft("Jax, abre um vídeo no YouTube")}><Play /> YouTube</button></div></div><section className="jax-workspace-panel"><div className="jax-workspace-toolbar"><div><span className="jax-card-overline">Espaço controlado pelo JAX</span><strong>Janelas abertas</strong></div><div className="flex items-center gap-1"><Button variant="ghost" size="icon" className="jax-icon-button" onClick={() => openWindow("weather")} aria-label="Adicionar janela"><Plus /></Button><Button variant="ghost" size="icon" className="jax-icon-button" aria-label="Organizar janelas"><Grid2X2 /></Button></div></div><div className="jax-window-canvas" onPointerMove={onWindowPointerMove} onPointerUp={() => setDragging(null)} onPointerLeave={() => setDragging(null)}>{visibleWindows.length === 0 ? <div className="jax-canvas-empty"><PanelLeft /><strong>Nenhuma janela aberta</strong><small>Peça ao JAX para abrir uma informação.</small></div> : visibleWindows.map((item) => <JaxWindow key={item.id} item={item} onFocus={focusWindow} onMinimize={minimizeWindow} onClose={closeWindow} onMaximize={(id) => setWindows((items) => items.map((window) => window.id === id ? { ...window, maximized: !window.maximized } : window))} onPointerDown={onWindowPointerDown} />)}</div></section></section>
-      <aside className="jax-inspector"><div className="jax-inspector-head"><div><div className="jax-section-label">Estado</div><h2>JAX está no controle</h2></div><Button variant="ghost" size="icon" className="jax-icon-button" aria-label="Mais opções"><MoreHorizontal /></Button></div><div className="jax-health-card"><div className="flex items-center gap-2"><MessageSquareText /><span>Modo conversa</span></div><strong>{visibleWindows.length}<span> telas</span></strong><small>O JAX decide o que merece aparecer.</small></div><div className="jax-inspector-section"><div className="jax-section-label">Pontes prontas para o backend</div><div className="jax-bridge-list"><div><TerminalSquare /><span><strong>Codex</strong><small>Orquestração e execução</small></span><b>READY</b></div><div><FolderGit2 /><span><strong>GitHub</strong><small>Repositórios autorizados</small></span><b>LINK</b></div><div><Waves /><span><strong>Voz</strong><small>API preparada</small></span><b>FUTURO</b></div></div></div><div className="jax-inspector-section mt-auto"><div className="jax-next-step"><span>01</span><div><strong>Você conversa. JAX organiza.</strong><small>Janelas secundárias ficam menores e a nova tarefa ganha o foco.</small></div></div></div></aside>
-    </div><footer className="jax-footer"><span>JAX PERSONAL OS · CONVERSATION FIRST</span><span className="hidden sm:inline">MOVA · MINIMIZE · ORGANIZE</span><span className="flex items-center gap-2"><Volume2 /> VOZ PREPARADA</span></footer>
+  function submit(event: FormEvent) { event.preventDefault(); execute(draft) }
+  const visible = windows.filter((item) => !item.minimized)
+
+  return <main className={`jax-minimal ${sidebar ? "sidebar-open" : ""}`}>
+    <header className="jax-minimal-header"><button aria-label={sidebar ? "Fechar barra lateral" : "Abrir barra lateral"} aria-expanded={sidebar} onClick={() => setSidebar(!sidebar)}><PanelLeft size={18} /></button><span className="jax-wordmark">JAX<span> / LUIZ</span></span><span className="jax-session-status"><i />{voice.mode === "continuous" ? "ESCUTA CONTÍNUA" : voice.mode === "single" ? "OUVINDO" : "SEU ESPAÇO"}</span></header>
+    {sidebar && <aside className="jax-minimal-sidebar"><div className="jax-sidebar-heading"><strong>Seu espaço</strong><button aria-label="Recolher barra lateral" onClick={() => setSidebar(false)}><ChevronLeft size={18} /></button></div><p>Janelas</p>{windows.length === 0 && <small>Nenhuma janela aberta.</small>}{windows.map((item) => <button className="jax-saved-window" key={item.id} onClick={() => { patch(item.id, { minimized: false, z: ++z.current }); setSidebar(false) }}>{item.title}<span>{item.minimized ? "Restaurar" : "Aberta"}</span></button>)}<p>Capacidades</p><nav className="jax-capability-nav" aria-label="Capacidades do JAX">{capabilities.map(({ id, title, icon: Icon, description }) => <button key={id} title={description} onClick={() => { open({ id, title, query: description }); setSidebar(false) }}><Icon size={15} /><span>{title}</span></button>)}</nav><div className="jax-sidebar-bottom"><strong>Conexões</strong><a href="https://github.com/" target="_blank" rel="noopener noreferrer">GitHub <ExternalLink size={12} /></a><p>Computador local não conectado.</p><small>Terminal, arquivos, tela e envio de e-mail exigem o backend e permissões explícitas.</small></div></aside>}
+    <div className="jax-minimal-desktop" data-jax-desktop ref={desktop}>
+      <section className="jax-presence" aria-label="Assistente JAX"><div className="jax-minimal-orb"><ParticleOrb state={state} /></div><div className="jax-presence-status">{voice.mode !== "off" ? "Estou ouvindo" : processing ? "Processando comando" : messages.length ? "Com você, Luiz" : "O que vamos fazer, Luiz?"}</div></section>
+      <section className="jax-minimal-conversation" aria-label="Conversa com JAX"><div ref={transcript} className="jax-minimal-transcript" aria-live="polite">{messages.map((message) => <div key={message.id} className={`jax-minimal-message ${message.role}`}><span>{message.role === "jax" ? "JAX" : "VOCÊ"}</span><p>{message.text}</p></div>)}</div>{voice.partial && <p className="jax-partial" aria-live="polite">{voice.partial}</p>}<form className="jax-minimal-composer" onSubmit={submit}><textarea rows={1} aria-label="Comando para JAX" placeholder="Mande qualquer coisa…" value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229) { event.preventDefault(); execute(draft) } }} /><div className="jax-input-actions"><button type="button" aria-label={voice.mode === "single" ? "Parar comando por voz" : "Dar um comando por voz"} aria-pressed={voice.mode === "single"} title="Um comando por voz" onClick={() => voice.toggle("single")}>{voice.mode === "single" ? <Square size={16} /> : <Mic size={18} />}</button><button type="button" aria-label={voice.mode === "continuous" ? "Parar conversação contínua" : "Iniciar conversação contínua"} aria-pressed={voice.mode === "continuous"} title="Escuta contínua até você parar" onClick={() => voice.toggle("continuous")}>{voice.mode === "continuous" ? <Square size={16} /> : <AudioLines size={19} />}</button><button type="submit" className="jax-submit" aria-label="Enviar comando" disabled={!draft.trim()}><ArrowUp size={18} /></button></div></form>{voice.mode === "continuous" && <button className="jax-stop-listening" onClick={voice.stop}>Microfone ativo · clique para parar</button>}</section>
+      {visible.map((item) => <JaxWindow key={item.id} item={item} patch={(update) => patch(item.id, update)} close={() => setWindows((items) => items.filter((other) => other.id !== item.id))} focus={() => patch(item.id, { z: ++z.current })}>{capabilities.some((capability) => capability.id === item.id) ? <JaxCapabilityContent id={item.id} onReply={respond} /> : undefined}</JaxWindow>)}
+      {windows.some((item) => item.minimized) && <nav className="jax-window-dock" aria-label="Janelas minimizadas">{windows.filter((item) => item.minimized).map((item) => <button key={item.id} onClick={() => patch(item.id, { minimized: false, z: ++z.current })}>{item.title}</button>)}</nav>}
+    </div>
+    {full && latest && noticeVisible && <div className="jax-floating-dialog" role="status" style={{ left: dialogPosition.x, top: dialogPosition.y }}><header onPointerDown={(event) => { if ((event.target as HTMLElement).closest("button")) return; event.currentTarget.setPointerCapture(event.pointerId); event.currentTarget.dataset.dx = String(event.clientX - dialogPosition.x); event.currentTarget.dataset.dy = String(event.clientY - dialogPosition.y) }} onPointerMove={(event) => { if (!event.currentTarget.hasPointerCapture(event.pointerId)) return; setDialogPosition({ x: Math.max(8, Math.min(window.innerWidth - 320, event.clientX - Number(event.currentTarget.dataset.dx))), y: Math.max(8, Math.min(window.innerHeight - 150, event.clientY - Number(event.currentTarget.dataset.dy))) }) }}><span>JAX</span><button aria-label="Dispensar resposta" onClick={() => setNoticeVisible(false)}><X size={14} /></button></header><p>{latest.text}</p></div>}
   </main>
-}
-
-function JaxWindow({ item, onFocus, onMinimize, onClose, onMaximize, onPointerDown }: { item: AppWindowState; onFocus: (id: WindowId) => void; onMinimize: (id: WindowId) => void; onClose: (id: WindowId) => void; onMaximize: (id: WindowId) => void; onPointerDown: (event: PointerEvent, id: WindowId) => void }) {
-  const meta = windowMeta[item.id]
-  const Icon = meta.icon
-  return <article className={`jax-window-card window-${item.id} ${item.maximized ? "is-maximized" : ""}`} style={{ left: item.maximized ? 8 : item.x, top: item.maximized ? 8 : item.y, width: item.maximized ? "calc(100% - 16px)" : item.width, height: item.maximized ? "calc(100% - 16px)" : item.height, zIndex: item.z }} onPointerDown={() => onFocus(item.id)}><header className="jax-window-titlebar" onPointerDown={(event) => onPointerDown(event, item.id)}><div className="flex items-center gap-2"><span className={`jax-window-icon ${meta.color}`}><Icon /></span><span><strong>{meta.title}</strong><small>{meta.subtitle}</small></span></div><div className="flex items-center gap-1"><button onClick={() => onMaximize(item.id)} aria-label={`${item.maximized ? "Restaurar" : "Abrir em tela cheia"} ${meta.title}`}>{item.maximized ? <Minimize2 /> : <Maximize2 />}</button><button onClick={() => onMinimize(item.id)} aria-label={`Minimizar ${meta.title}`}><Minus /></button><button onClick={() => onClose(item.id)} aria-label={`Fechar ${meta.title}`}><X /></button></div></header><WindowContent id={item.id} /></article>
-}
-
-function WindowContent({ id }: { id: WindowId }) {
-  if (id === "weather") return <div className="jax-window-content weather-content"><CloudSun /><strong>22° · Parcialmente nublado</strong><small>São Paulo · sensação de 23°</small><div className="weather-meta"><span>Umidade 68%</span><span>Vento 12 km/h</span></div></div>
-  if (id === "news") return <div className="jax-window-content news-content"><div className="news-filter"><Search /><span>IA + tecnologia</span><span className="news-location">personalizado</span></div>{["Agentes começam a operar como sistemas completos", "Novos modelos ampliam voz, visão e contexto", "O que muda na próxima geração de ferramentas"].map((title, index) => <button className="news-row" key={title}><span>0{index + 1}</span><div><strong>{title}</strong><small>Fonte selecionada · agora</small></div><ExternalLink /></button>)}</div>
-  if (id === "youtube") return <div className="jax-window-content video-content"><div className="video-preview"><div className="video-grid" /><button aria-label="Reproduzir vídeo"><Play /></button><span>youtube.com · pronto para abrir</span></div><div className="video-meta"><strong>Vídeo solicitado pelo Luiz</strong><small>A URL real será resolvida pelo backend.</small></div></div>
-  if (id === "email") return <div className="jax-window-content email-content"><div className="email-field"><small>PARA</small><strong>destinatario@exemplo.com</strong></div><div className="email-field"><small>ASSUNTO</small><strong>Rascunho preparado pelo JAX</strong></div><div className="email-actions"><Button size="sm">Enviar pelo backend</Button><span>aguardando validação</span></div></div>
-  return <div className="jax-window-content codex-content"><div className="code-line"><span>01</span><code>const repo = await github.authorize()</code></div><div className="code-line"><span>02</span><code>const review = await codex.inspect(repo)</code></div><div className="code-line active"><span>03</span><code>return jax.present(review, "focused")</code></div><div className="codex-status"><span /> <span>Pronto para o backend do Codex</span></div></div>
 }

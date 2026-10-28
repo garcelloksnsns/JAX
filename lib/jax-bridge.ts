@@ -3,7 +3,7 @@ export type JaxAgentState = "idle" | "listening" | "thinking" | "speaking"
 export type JaxScreen = {
   id: string
   title: string
-  kind: "command" | "codex" | "mission" | "memory"
+  kind: "command" | "codex" | "mission" | "memory" | "browser" | "video" | "document" | "terminal" | "dialog"
   x: number
   y: number
   width: number
@@ -12,7 +12,22 @@ export type JaxScreen = {
   visible: boolean
 }
 
-export type JaxTool = "google.search" | "google.news" | "youtube.open" | "calendar.list" | "codex.execute" | "github.inspect" | "email.draft" | "email.send" | "memory.query"
+export type JaxTool = "google.search" | "google.news" | "youtube.open" | "calendar.list" | "codex.execute" | "github.inspect" | "email.draft" | "email.send" | "memory.query" | "browser.open" | "browser.inspect" | "browser.click" | "screen.capture" | "terminal.execute" | "files.read" | "files.mkdir" | "files.move" | "files.delete" | "documents.extract"
+
+export type JaxPermission = {
+  capability: JaxTool
+  status: "unavailable" | "needs-approval" | "granted" | "denied"
+  scope: string[]
+  expiresAt?: number
+}
+
+export type JaxToolResult = {
+  requestId: string
+  status: "unavailable" | "awaiting-approval" | "running" | "completed" | "failed" | "cancelled"
+  verified: boolean
+  output?: unknown
+  error?: string
+}
 
 export type JaxVoiceMode = "push-to-talk" | "realtime"
 export type JaxWindowIntent = "open" | "focus" | "minimize" | "maximize" | "restore" | "close" | "arrange"
@@ -38,7 +53,8 @@ export type JaxEvent =
 
 /**
  * Contrato público entre o front-end JAX e o backend do Codex.
- * Substituir o transporte mock por WebSocket/SSE quando o endpoint existir.
+ * Implementar transporte autenticado WebSocket/SSE quando o endpoint existir.
+ * Este contrato não concede permissões nem executa ferramentas locais.
  */
 export interface JaxBridge {
   send(event: JaxEvent): void
