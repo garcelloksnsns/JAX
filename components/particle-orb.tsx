@@ -1,97 +1,57 @@
 "use client"
 
-import { useRef, useMemo } from "react"
+import { useMemo, useRef } from "react"
 import { Canvas, useFrame } from "@react-three/fiber"
 import type * as THREE from "three"
 
-function DottedSphere({ radius = 1.2, dotCount = 800, dotSize = 0.035 }) {
-  const groupRef = useRef<THREE.Group>(null)
+export type OrbState = "idle" | "listening" | "thinking" | "speaking"
 
+const stateColors = {
+  idle: "#63e6ff",
+  listening: "#a7f3d0",
+  thinking: "#c4b5fd",
+  speaking: "#67e8f9",
+}
+
+function DottedSphere({ state }: { state: OrbState }) {
+  const groupRef = useRef<THREE.Group>(null)
+  const color = stateColors[state]
   const dots = useMemo(() => {
     const positions: [number, number, number][] = []
-    const phi = Math.PI * (3 - Math.sqrt(5)) // golden angle for even distribution
-
-    for (let i = 0; i < dotCount; i++) {
-      const y = 1 - (i / (dotCount - 1)) * 2
+    const phi = Math.PI * (3 - Math.sqrt(5))
+    for (let i = 0; i < 900; i++) {
+      const y = 1 - (i / 899) * 2
       const radiusAtY = Math.sqrt(1 - y * y)
       const theta = phi * i
-
-      const x = Math.cos(theta) * radiusAtY * radius
-      const z = Math.sin(theta) * radiusAtY * radius
-      positions.push([x, y * radius, z])
+      positions.push([Math.cos(theta) * radiusAtY * 1.22, y * 1.22, Math.sin(theta) * radiusAtY * 1.22])
     }
     return positions
-  }, [radius, dotCount])
+  }, [])
 
-  useFrame((state) => {
-    if (groupRef.current) {
-      groupRef.current.rotation.y = state.clock.elapsedTime * 0.08
-      groupRef.current.rotation.x = Math.sin(state.clock.elapsedTime * 0.05) * 0.1
-    }
+  useFrame((frame) => {
+    if (!groupRef.current) return
+    const speed = state === "thinking" ? 0.28 : state === "listening" ? 0.16 : 0.09
+    groupRef.current.rotation.y = frame.clock.elapsedTime * speed
+    groupRef.current.rotation.x = Math.sin(frame.clock.elapsedTime * 0.45) * 0.08
+    const pulse = 1 + Math.sin(frame.clock.elapsedTime * (state === "speaking" ? 3.8 : 1.5)) * (state === "idle" ? 0.02 : 0.06)
+    groupRef.current.scale.setScalar(pulse)
   })
 
-  return (
-    <group ref={groupRef}>
-      {dots.map((pos, i) => (
-        <mesh key={i} position={pos}>
-          <sphereGeometry args={[dotSize, 8, 8]} />
-          <meshStandardMaterial
-            color="#ffffff"
-            emissive="#ffffff"
-            emissiveIntensity={0.8}
-            metalness={0.9}
-            roughness={0.1}
-          />
-        </mesh>
-      ))}
-    </group>
-  )
+  return <group ref={groupRef}>{dots.map((position, index) => <mesh key={index} position={position}><sphereGeometry args={[state === "thinking" ? 0.028 : 0.022, 6, 6]} /><meshBasicMaterial color={color} transparent opacity={0.72 + (index % 5) * 0.05} /></mesh>)}</group>
 }
 
-function GlowingCore() {
-  const meshRef = useRef<THREE.Mesh>(null)
-
-  useFrame((state) => {
-    if (meshRef.current) {
-      const scale = 1 + Math.sin(state.clock.elapsedTime * 1.5) * 0.02
-      meshRef.current.scale.set(scale, scale, scale)
-    }
-  })
-
-  return (
-    <mesh ref={meshRef}>
-      <sphereGeometry args={[0.15, 32, 32]} />
-      <meshStandardMaterial color="#ffffff" emissive="#ffffff" emissiveIntensity={2} metalness={0.5} roughness={0.1} />
-    </mesh>
-  )
+function Core({ state }: { state: OrbState }) {
+  const ref = useRef<THREE.Mesh>(null)
+  useFrame((frame) => { if (ref.current) ref.current.scale.setScalar(1 + Math.sin(frame.clock.elapsedTime * 2.5) * 0.08) })
+  return <mesh ref={ref}><sphereGeometry args={[0.15, 32, 32]} /><meshBasicMaterial color={stateColors[state]} /></mesh>
 }
 
-function Scene() {
-  return (
-    <>
-      <ambientLight intensity={0.6} />
-      <pointLight position={[5, 5, 5]} intensity={2} color="#ffffff" />
-      <pointLight position={[-5, -5, -5]} intensity={1} color="#cccccc" />
-      <pointLight position={[0, 0, 5]} intensity={1.5} color="#ffffff" />
-
-      <GlowingCore />
-      <DottedSphere radius={1.2} dotCount={800} dotSize={0.035} />
-    </>
-  )
-}
-
-export function ParticleOrb() {
-  return (
-    <div className="w-48 h-48 relative">
-      {/* Outer glow effect */}
-      <div className="absolute inset-[-30%] bg-gradient-radial from-white/20 via-white/5 to-transparent rounded-full blur-3xl" />
-      <Canvas
-        camera={{ position: [0, 0, 4], fov: 45 }}
-        style={{ background: "transparent" }}
-        gl={{ alpha: true, antialias: true }}
-      >
-        <Scene />
-      </Canvas>
-    </div>
-  )
+export function ParticleOrb({ state = "idle" }: { state?: OrbState }) {
+  const color = stateColors[state]
+  return <div className={`jax-orb orb-${state}`} style={{ "--orb-color": color } as React.CSSProperties}>
+    <div className="jax-orb-halo" /><div className="jax-orb-ring ring-one" /><div className="jax-orb-ring ring-two" />
+    <Canvas camera={{ position: [0, 0, 4], fov: 45 }} style={{ background: "transparent" }} gl={{ alpha: true, antialias: true }}>
+      <ambientLight intensity={0.8} /><pointLight position={[3, 3, 4]} intensity={2} color={color} /><Core state={state} /><DottedSphere state={state} />
+    </Canvas>
+  </div>
 }

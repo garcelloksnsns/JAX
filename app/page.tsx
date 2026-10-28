@@ -1,9 +1,5 @@
-import { ChatArea } from "@/components/chat-area"
+import { JaxWorkspace } from "@/components/jax-workspace"
 
 export default function Home() {
-  return (
-    <div className="flex h-screen w-full overflow-hidden bg-background">
-      <ChatArea />
-    </div>
-  )
+  return <JaxWorkspace />
 }
