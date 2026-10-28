@@ -3,28 +3,31 @@
 import { useMemo, useState } from "react"
 import {
   Activity,
-  ArrowUp,
+  AppWindow,
   BrainCircuit,
+  CalendarDays,
+  ChevronLeft,
+  ChevronRight,
   Command,
-  Cpu,
-  Eye,
+  ExternalLink,
   FolderKanban,
   Grid2X2,
-  Headphones,
   LayoutPanelTop,
   Maximize2,
-  Mic2,
+  Menu,
+  MessageSquareText,
+  Minimize2,
   Minus,
   MoreHorizontal,
   Move,
+  Newspaper,
   PanelLeft,
-  PlugZap,
+  Play,
   Plus,
   Search,
   Settings2,
   ShieldCheck,
   Sparkles,
-  Square,
   TerminalSquare,
   Volume2,
   Waves,
@@ -34,144 +37,117 @@ import {
 import { Button } from "@/components/ui/button"
 import { ParticleOrb, type OrbState } from "@/components/particle-orb"
 
-const quickActions = [
-  { label: "Planejar meu dia", detail: "Agenda, tarefas e prioridades", icon: Activity },
-  { label: "Abrir workspace", detail: "Projetos e arquivos recentes", icon: FolderKanban },
-  { label: "Revisar automações", detail: "Rotinas aguardando aprovação", icon: Zap },
+type WindowId = "news" | "youtube" | "codex"
+type AppWindowState = { id: WindowId; x: number; y: number; width: number; height: number; minimized: boolean; z: number }
+
+const initialWindows: AppWindowState[] = [
+  { id: "news", x: 18, y: 18, width: 330, height: 270, minimized: false, z: 3 },
+  { id: "youtube", x: 372, y: 42, width: 330, height: 250, minimized: false, z: 2 },
+  { id: "codex", x: 130, y: 330, width: 360, height: 210, minimized: false, z: 1 },
 ]
 
-const integrations = [
-  { name: "Codex", detail: "Código e execução", icon: TerminalSquare, status: "Conectado", tone: "cyan" },
-  { name: "Google Calendar", detail: "Agenda e compromissos", icon: Activity, status: "Conectar", tone: "amber" },
-  { name: "Notion", detail: "Notas e documentação", icon: BrainCircuit, status: "Conectar", tone: "purple" },
-]
+const windowMeta = {
+  news: { title: "Notícias do dia", subtitle: "Google News · filtro: tecnologia", icon: Newspaper, color: "amber" },
+  youtube: { title: "YouTube", subtitle: "Vídeo aberto por comando", icon: Play, color: "red" },
+  codex: { title: "Codex Bridge", subtitle: "Terminal e tarefas do projeto", icon: TerminalSquare, color: "violet" },
+} as const
 
-const activityItems = [
-  ["09:42", "Mapeando prioridades do projeto JAX", "em execução"],
-  ["09:39", "Memória de contexto sincronizada", "concluído"],
-  ["09:31", "Conexão com Codex aguardando endpoint", "aguardando"],
+const navItems = [
+  [Command, "Comando"], [Grid2X2, "Workspaces"], [Newspaper, "Notícias"], [FolderKanban, "Projetos"], [CalendarDays, "Agenda"], [BrainCircuit, "Memória"], [Zap, "Automações"],
+] as const
+
+const news = [
+  ["01", "A próxima geração de agentes está virando sistema operacional", "The Verge · 18 min"],
+  ["02", "Novos modelos multimodais avançam em voz e visão", "TechCrunch · 32 min"],
+  ["03", "O futuro do trabalho com interfaces de IA locais", "Wired · 1 h"],
 ]
 
 export function JaxWorkspace() {
   const [orbState, setOrbState] = useState<OrbState>("idle")
   const [activePanel, setActivePanel] = useState("Comando")
   const [isListening, setIsListening] = useState(false)
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false)
-  const [isActivityOpen, setIsActivityOpen] = useState(true)
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false)
+  const [windows, setWindows] = useState(initialWindows)
+  const [dragging, setDragging] = useState<{ id: WindowId; dx: number; dy: number } | null>(null)
+  const [maxZ, setMaxZ] = useState(3)
 
-  const statusCopy = useMemo(
-    () => ({
-      idle: "Pronto para agir",
-      listening: "Ouvindo você",
-      thinking: "Processando intenção",
-      speaking: "Respondendo em voz",
-    })[orbState],
-    [orbState],
-  )
+  const statusCopy = useMemo(() => ({ idle: "Pronto para agir", listening: "Ouvindo você", thinking: "Entendendo o pedido", speaking: "Falando com você" })[orbState], [orbState])
+  const visibleWindows = windows.filter((item) => !item.minimized)
 
   function runAction() {
     setOrbState("thinking")
-    window.setTimeout(() => setOrbState("speaking"), 900)
-    window.setTimeout(() => setOrbState("idle"), 2600)
+    window.setTimeout(() => setOrbState("speaking"), 950)
+    window.setTimeout(() => setOrbState("idle"), 2800)
   }
 
   function startListening() {
     setIsListening(true)
     setOrbState("listening")
-    window.setTimeout(() => setIsListening(false), 3200)
+    window.setTimeout(() => { setIsListening(false); setOrbState("idle") }, 3600)
   }
+
+  function focusWindow(id: WindowId) {
+    setMaxZ((value) => value + 1)
+    setWindows((items) => items.map((item) => item.id === id ? { ...item, z: maxZ + 1 } : item))
+  }
+
+  function toggleWindow(id: WindowId) {
+    setWindows((items) => items.map((item) => item.id === id ? { ...item, minimized: !item.minimized, z: maxZ + 1 } : item))
+    setMaxZ((value) => value + 1)
+  }
+
+  function closeWindow(id: WindowId) { setWindows((items) => items.filter((item) => item.id !== id)) }
+
+  function onWindowPointerDown(event: React.PointerEvent, id: WindowId) {
+    const target = event.currentTarget.parentElement?.getBoundingClientRect()
+    if (!target) return
+    focusWindow(id)
+    setDragging({ id, dx: event.clientX - target.left, dy: event.clientY - target.top })
+    event.currentTarget.setPointerCapture(event.pointerId)
+  }
+
+  function onWindowPointerMove(event: React.PointerEvent) {
+    if (!dragging) return
+    const workspace = event.currentTarget.getBoundingClientRect()
+    setWindows((items) => items.map((item) => item.id === dragging.id ? { ...item, x: Math.max(8, event.clientX - workspace.left - dragging.dx), y: Math.max(8, event.clientY - workspace.top - dragging.dy) } : item))
+  }
+
+  function stopDragging() { setDragging(null) }
 
   return (
     <main className="jax-app">
       <div className="jax-noise" />
       <header className="jax-topbar">
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="icon" className="jax-icon-button lg:hidden" onClick={() => setIsSidebarOpen((value) => !value)} aria-label="Abrir navegação">
-            <PanelLeft className="size-4" />
-          </Button>
-          <div className="jax-brand-mark" aria-hidden="true"><span /></div>
-          <div>
-            <div className="jax-brand-name">JAX <span>/</span> COGNITIVE OS</div>
-            <div className="jax-brand-subtitle">Painel de trabalho pessoal</div>
-          </div>
-        </div>
-        <div className="jax-topbar-status">
-          <span className="jax-live-dot" />
-          <span>JAX ONLINE</span>
-          <span className="jax-divider" />
-          <span className="hidden sm:inline">LATÊNCIA 24ms</span>
-          <Button variant="ghost" size="icon" className="jax-icon-button ml-2" aria-label="Abrir configurações"><Settings2 className="size-4" /></Button>
-        </div>
+        <div className="flex items-center gap-3"><Button variant="ghost" size="icon" className="jax-icon-button lg:hidden" onClick={() => setIsMobileSidebarOpen(true)} aria-label="Abrir navegação"><Menu /></Button><div className="jax-brand-mark" aria-hidden="true"><span /></div><div><div className="jax-brand-name">JAX <span>/</span> PERSONAL OS</div><div className="jax-brand-subtitle">Uma camada de trabalho para Luiz</div></div></div>
+        <div className="jax-topbar-status"><span className="jax-live-dot" /><span>JAX ONLINE</span><span className="jax-divider" /><span className="hidden sm:inline">3 JANELAS ATIVAS</span><Button variant="ghost" size="icon" className="jax-icon-button ml-2" aria-label="Abrir configurações"><Settings2 /></Button></div>
       </header>
 
-      <div className="jax-layout">
-        <aside className={`jax-sidebar ${isSidebarOpen ? "is-open" : ""}`}>
-          <div className="jax-side-section">
-            <div className="jax-section-label">Navegação</div>
-            <nav className="space-y-1" aria-label="Navegação principal">
-              {[
-                [Command, "Comando"],
-                [Grid2X2, "Workspaces"],
-                [BrainCircuit, "Memória"],
-                [PlugZap, "Integrações"],
-                [TerminalSquare, "Automações"],
-              ].map(([Icon, label]) => (
-                <button key={label as string} className={`jax-nav-item ${activePanel === label ? "is-active" : ""}`} onClick={() => setActivePanel(label as string)}>
-                  <Icon className="size-4" /> <span>{label as string}</span>
-                  {label === "Memória" && <span className="jax-nav-count">12</span>}
-                </button>
-              ))}
-            </nav>
-          </div>
-          <div className="jax-side-section">
-            <div className="flex items-center justify-between px-3 mb-2"><div className="jax-section-label mb-0">Telas ativas</div><Plus className="size-3 text-white/35" /></div>
-            <div className="space-y-1">
-              {["Command Center", "Codex Bridge", "Mission Control"].map((screen, index) => (
-                <button key={screen} className="jax-screen-item"><span className={`jax-screen-dot dot-${index + 1}`} />{screen}<MoreHorizontal className="ml-auto size-3.5 text-white/25" /></button>
-              ))}
-            </div>
-          </div>
-          <div className="mt-auto jax-side-footer">
-            <div className="jax-memory-meter"><div className="flex items-center justify-between"><span>Memória de sessão</span><span>68%</span></div><div className="jax-meter-track"><div /></div></div>
-            <button className="jax-user-card"><span className="jax-avatar">LS</span><span className="text-left"><strong>Luiz Souto</strong><small>Responsável pelo workspace</small></span><MoreHorizontal className="ml-auto size-4 text-white/35" /></button>
-          </div>
+      <div className={`jax-layout ${isSidebarCollapsed ? "sidebar-collapsed" : ""}`}>
+        <aside className={`jax-sidebar ${isSidebarCollapsed ? "is-collapsed" : ""} ${isMobileSidebarOpen ? "mobile-open" : ""}`}>
+          <div className="jax-sidebar-collapse"><Button variant="ghost" size="icon" className="jax-icon-button" onClick={() => setIsSidebarCollapsed((value) => !value)} aria-label={isSidebarCollapsed ? "Expandir barra lateral" : "Reduzir barra lateral"}>{isSidebarCollapsed ? <ChevronRight /> : <ChevronLeft />}</Button></div>
+          <div className="jax-side-section"><div className="jax-section-label">Navegar</div><nav className="flex flex-col gap-1" aria-label="Navegação principal">{navItems.map(([Icon, label]) => <button key={label} className={`jax-nav-item ${activePanel === label ? "is-active" : ""}`} onClick={() => setActivePanel(label)} title={label}><Icon /><span>{label}</span>{label === "Memória" && <span className="jax-nav-count">12</span>}</button>)}</nav></div>
+          <div className="jax-side-section"><div className="flex items-center justify-between px-3 mb-2"><div className="jax-section-label mb-0">Telas abertas</div><Plus /></div><div className="flex flex-col gap-1">{windows.map((item) => { const meta = windowMeta[item.id]; const Icon = meta.icon; return <button key={item.id} className="jax-screen-item" onClick={() => toggleWindow(item.id)}><span className={`jax-screen-dot ${meta.color}`} /><Icon /><span>{meta.title}</span><MoreHorizontal className="ml-auto" /></button> })}</div></div>
+          <div className="mt-auto jax-side-footer"><div className="jax-memory-meter"><div className="flex items-center justify-between"><span>Memória local</span><span>68%</span></div><div className="jax-meter-track"><div /></div></div><button className="jax-user-card"><span className="jax-avatar">LS</span><span className="text-left"><strong>Luiz Souto</strong><small>Workspace pessoal</small></span><MoreHorizontal className="ml-auto" /></button></div>
         </aside>
 
         <section className="jax-main-column">
-          <div className="jax-command-strip">
-            <div className="flex items-center gap-2"><span className="jax-kicker">MODO ATUAL</span><span className="jax-mode-pill"><Sparkles className="size-3" /> Sessão de trabalho</span></div>
-            <div className="flex items-center gap-2"><span className="jax-kicker hidden md:inline">TELA 01 / 03</span><Button variant="ghost" size="icon" className="jax-icon-button" aria-label="Gerenciar telas"><LayoutPanelTop className="size-4" /></Button><Button variant="ghost" size="icon" className="jax-icon-button" aria-label="Expandir"><Maximize2 className="size-4" /></Button></div>
-          </div>
-
-          <div className="jax-orb-stage">
-            <div className="jax-orb-crosshair crosshair-left" /><div className="jax-orb-crosshair crosshair-right" />
-            <ParticleOrb state={orbState} />
-            <div className="jax-orb-caption"><span className="jax-status-pulse" />{statusCopy}</div>
-            <div className="jax-orb-readout"><span>ATIVIDADE</span><strong>JAX</strong><span>ATIVO AGORA</span></div>
-          </div>
-
-          <div className="jax-dashboard-heading">
-            <div><div className="jax-eyebrow"><Zap className="size-3" /> TUDO PRONTO</div><h1>Painel de <em>comando</em></h1><p>Escolha um foco e deixe o JAX cuidar da próxima etapa.</p></div>
-            <Button className={`jax-listen-button ${isListening ? "is-active" : ""}`} onClick={startListening}><Mic2 className="size-4" /> {isListening ? "Ouvindo" : "Falar com JAX"}</Button>
-          </div>
-
-          <div className="jax-dashboard-grid">
-            <section className="jax-function-card jax-function-card-wide"><div className="jax-card-heading"><div><span className="jax-card-overline">Ações rápidas</span><h2>Comece por aqui</h2></div><Command className="size-4 text-cyan-200" /></div><div className="jax-action-list">{quickActions.map(({ label, detail, icon: Icon }) => <button key={label} className="jax-action-row" onClick={runAction}><span className="jax-action-icon"><Icon className="size-4" /></span><span><strong>{label}</strong><small>{detail}</small></span><ArrowUp className="ml-auto size-4 rotate-45 text-white/30" /></button>)}</div></section>
-            <section className="jax-function-card"><div className="jax-card-heading"><div><span className="jax-card-overline">Integrações</span><h2>Ferramentas</h2></div><Plus className="size-4 text-cyan-200" /></div><div className="jax-integration-list">{integrations.map(({ name, detail, icon: Icon, status, tone }) => <button key={name} className="jax-integration-row" onClick={runAction}><span className={`jax-integration-icon ${tone}`}><Icon className="size-4" /></span><span><strong>{name}</strong><small>{detail}</small></span><span className={`jax-connection-status ${status === "Conectado" ? "connected" : ""}`}>{status}</span></button>)}</div></section>
-            <section className="jax-function-card"><div className="jax-card-heading"><div><span className="jax-card-overline">Rotinas</span><h2>Próximas execuções</h2></div><Activity className="size-4 text-cyan-200" /></div><div className="jax-routine-list"><div><span className="jax-routine-time">10:00</span><span><strong>Resumo diário</strong><small>Hoje · calendário + tarefas</small></span><span className="jax-routine-dot" /></div><div><span className="jax-routine-time">14:30</span><span><strong>Revisar pull requests</strong><small>Hoje · Codex</small></span><span className="jax-routine-dot purple" /></div><div><span className="jax-routine-time">18:00</span><span><strong>Fechamento do dia</strong><small>Hoje · memória</small></span><span className="jax-routine-dot amber" /></div></div></section>
-            <section className="jax-function-card"><div className="jax-card-heading"><div><span className="jax-card-overline">Memória</span><h2>Contexto recente</h2></div><BrainCircuit className="size-4 text-cyan-200" /></div><div className="jax-memory-list"><div><span className="jax-memory-type">PROJETO</span><strong>JAX / interface</strong><small>12 itens atualizados hoje</small></div><div><span className="jax-memory-type">PREFERÊNCIA</span><strong>Respostas objetivas</strong><small>Salvo por Luiz</small></div></div></section>
-          </div>
+          <div className="jax-command-strip"><div className="flex items-center gap-2"><span className="jax-kicker">FOCO ATUAL</span><span className="jax-mode-pill"><Sparkles /> {activePanel}</span></div><div className="flex items-center gap-2"><span className="jax-kicker hidden md:inline">DESKTOP / 01</span><Button variant="ghost" size="icon" className="jax-icon-button" aria-label="Gerenciar janelas"><LayoutPanelTop /></Button><Button variant="ghost" size="icon" className="jax-icon-button" aria-label="Tela cheia"><Maximize2 /></Button></div></div>
+          <div className="jax-orb-stage"><div className="jax-orb-crosshair crosshair-left" /><div className="jax-orb-crosshair crosshair-right" /><ParticleOrb state={orbState} /><div className="jax-orb-caption"><span className="jax-status-pulse" />{statusCopy}</div><div className="jax-orb-readout"><span>ESTADO</span><strong>{orbState.toUpperCase()}</strong><span>HOVER / TOQUE</span></div></div>
+          <div className="jax-control-row"><div><div className="jax-eyebrow"><Zap /> CENTRAL DE COMANDO</div><h1>O que precisa acontecer?</h1><p>Use a voz, abra uma ferramenta ou mova as janelas para montar seu espaço.</p></div><Button className={`jax-listen-button ${isListening ? "is-active" : ""}`} onClick={startListening}><Waves /> {isListening ? "Ouvindo" : "Ativar voz"}</Button></div>
+          <div className="jax-shortcuts"><button onClick={runAction}><Search /><span><strong>Pesquisar</strong><small>Google, notícias e referências</small></span><ChevronRight /></button><button onClick={runAction}><AppWindow /><span><strong>Abrir uma tela</strong><small>YouTube, Google ou Codex</small></span><ChevronRight /></button><button onClick={runAction}><MessageSquareText /><span><strong>Executar automação</strong><small>Rotinas e integrações</small></span><ChevronRight /></button></div>
+          <section className="jax-workspace-panel"><div className="jax-workspace-toolbar"><div><span className="jax-card-overline">Área de trabalho</span><strong>Janelas do JAX</strong></div><div className="flex items-center gap-1"><Button variant="ghost" size="icon" className="jax-icon-button" onClick={runAction} aria-label="Adicionar janela"><Plus /></Button><Button variant="ghost" size="icon" className="jax-icon-button" aria-label="Organizar janelas"><Grid2X2 /></Button></div></div><div className="jax-window-canvas" onPointerMove={onWindowPointerMove} onPointerUp={stopDragging} onPointerLeave={stopDragging}>{visibleWindows.length === 0 ? <div className="jax-canvas-empty"><LayoutPanelTop /><strong>Seu espaço está limpo</strong><small>Abra uma tela pelo central de comando.</small></div> : visibleWindows.map((item) => { const meta = windowMeta[item.id]; const Icon = meta.icon; return <article key={item.id} className={`jax-window-card window-${item.id}`} style={{ left: item.x, top: item.y, width: item.width, height: item.height, zIndex: item.z }} onPointerDown={() => focusWindow(item.id)}><header className="jax-window-titlebar" onPointerDown={(event) => onWindowPointerDown(event, item.id)}><div className="flex items-center gap-2"><span className={`jax-window-icon ${meta.color}`}><Icon /></span><span><strong>{meta.title}</strong><small>{meta.subtitle}</small></span></div><div className="flex items-center gap-1"><button onClick={() => toggleWindow(item.id)} aria-label={`Minimizar ${meta.title}`}><Minus /></button><button onClick={() => closeWindow(item.id)} aria-label={`Fechar ${meta.title}`}><X /></button></div></header><WindowContent id={item.id} onAction={runAction} /></article> })}</div></section>
         </section>
 
-        <aside className={`jax-inspector ${isActivityOpen ? "is-open" : ""}`}>
-          <div className="jax-inspector-head"><div><div className="jax-section-label">Visão geral</div><h2>Seu painel</h2></div><Button variant="ghost" size="icon" className="jax-icon-button" onClick={() => setIsActivityOpen((value) => !value)} aria-label="Recolher telemetria"><Minus className="size-4" /></Button></div>
-          <div className="jax-health-card"><div className="flex items-center gap-2"><ShieldCheck className="size-4 text-cyan-300" /><span>Sistema saudável</span></div><strong>98.7<span>%</span></strong><div className="jax-health-line"><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /></div><small>Performance cognitiva</small></div>
-          <div className="jax-inspector-section"><div className="jax-section-label">Estado do agente</div><div className="jax-agent-state"><div className="jax-agent-icon"><Headphones className="size-4" /></div><div><strong>JAX pronto</strong><small>{statusCopy}</small></div><span className="jax-live-dot ml-auto" /></div></div>
-          <div className="jax-inspector-section"><div className="flex items-center justify-between"><div className="jax-section-label mb-0">Atividade recente</div><button className="jax-text-button">Ver tudo</button></div><div className="mt-3 space-y-4">{activityItems.map(([time, label, status]) => <div key={label} className="jax-activity-row"><span className="jax-activity-time">{time}</span><span className="jax-activity-line" /><div><p>{label}</p><small className={status === "concluído" ? "is-done" : ""}>{status}</small></div></div>)}</div></div>
-          <div className="jax-inspector-section mt-auto"><div className="jax-section-label">Pontes</div><div className="jax-bridge-card"><div className="flex items-center gap-2"><div className="jax-bridge-icon"><Cpu className="size-4" /></div><div><strong>Codex / backend</strong><small>Contrato pronto para conectar</small></div></div><span className="jax-bridge-status">READY</span></div><div className="jax-bridge-card"><div className="flex items-center gap-2"><div className="jax-bridge-icon purple"><Waves className="size-4" /></div><div><strong>Realtime voice</strong><small>Canal de áudio preparado</small></div></div><span className="jax-bridge-status muted">LINK</span></div></div>
-        </aside>
+        <aside className="jax-inspector"><div className="jax-inspector-head"><div><div className="jax-section-label">Sistema</div><h2>Controle rápido</h2></div><Button variant="ghost" size="icon" className="jax-icon-button" aria-label="Mais opções"><MoreHorizontal /></Button></div><div className="jax-health-card"><div className="flex items-center gap-2"><ShieldCheck /><span>Sistema saudável</span></div><strong>98.7<span>%</span></strong><div className="jax-health-line">{Array.from({ length: 10 }).map((_, index) => <span key={index} style={{ height: `${35 + ((index * 17) % 60)}%` }} />)}</div><small>Pronto para executar</small></div><div className="jax-inspector-section"><div className="jax-section-label">Estado do agente</div><div className="jax-agent-state"><div className="jax-agent-icon"><Volume2 /></div><div><strong>JAX pronto</strong><small>{statusCopy}</small></div><span className="jax-live-dot ml-auto" /></div></div><div className="jax-inspector-section"><div className="flex items-center justify-between"><div className="jax-section-label mb-0">Pontes disponíveis</div><button className="jax-text-button">Configurar</button></div><div className="jax-bridge-list"><div><TerminalSquare /><span><strong>Codex</strong><small>Backend e execução</small></span><b>READY</b></div><div><BrainCircuit /><span><strong>Memória</strong><small>Arquivos locais</small></span><b>READY</b></div><div><Waves /><span><strong>Voz</strong><small>Realtime preparado</small></span><b>LINK</b></div></div></div><div className="jax-inspector-section mt-auto"><div className="jax-section-label">Próximo passo</div><div className="jax-next-step"><span>01</span><div><strong>Conectar ferramentas</strong><small>Google, YouTube e agenda ficam nesta camada.</small></div></div></div></aside>
       </div>
-      <footer className="jax-footer"><span>JAX COGNITIVE OS · PREVIEW BUILD 0.1</span><span className="hidden sm:inline">ARRASTE JANELAS · REDIMENSIONE · COMANDE</span><span className="flex items-center gap-2"><Volume2 className="size-3" /> ÁUDIO ATIVO</span></footer>
+      <footer className="jax-footer"><span>JAX PERSONAL OS · PREVIEW 0.2</span><span className="hidden sm:inline">MOVA · MINIMIZE · ORGANIZE</span><span className="flex items-center gap-2"><Volume2 /> ÁUDIO ATIVO</span></footer>
     </main>
   )
+}
+
+function WindowContent({ id, onAction }: { id: WindowId; onAction: () => void }) {
+  if (id === "news") return <div className="jax-window-content news-content"><div className="news-filter"><Search /><span>tecnologia + IA</span><span className="news-location">São Paulo · agora</span></div>{news.map(([number, title, source]) => <button className="news-row" key={number} onClick={onAction}><span>{number}</span><div><strong>{title}</strong><small>{source}</small></div><ExternalLink /></button>)}</div>
+  if (id === "youtube") return <div className="jax-window-content video-content"><div className="video-preview"><div className="video-grid" /><button onClick={onAction} aria-label="Reproduzir vídeo"><Play /></button><span>youtube.com</span></div><div className="video-meta"><strong>Vídeo aberto pelo JAX</strong><small>Pronto para reproduzir em uma janela</small></div></div>
+  return <div className="jax-window-content codex-content"><div className="code-line"><span>01</span><code>const workspace = await jax.connect()</code></div><div className="code-line"><span>02</span><code>workspace.open("google-news")</code></div><div className="code-line active"><span>03</span><code>await codex.execute(nextAction)</code></div><div className="codex-status"><span /><span>Codex aguardando comando do backend</span></div></div>
 }
