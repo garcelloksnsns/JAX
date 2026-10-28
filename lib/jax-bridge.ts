@@ -12,7 +12,17 @@ export type JaxScreen = {
   visible: boolean
 }
 
-export type JaxTool = "google.search" | "google.news" | "youtube.open" | "calendar.list" | "codex.execute" | "memory.query"
+export type JaxTool = "google.search" | "google.news" | "youtube.open" | "calendar.list" | "codex.execute" | "github.inspect" | "email.draft" | "email.send" | "memory.query"
+
+export type JaxVoiceMode = "push-to-talk" | "realtime"
+export type JaxWindowIntent = "open" | "focus" | "minimize" | "maximize" | "restore" | "close" | "arrange"
+
+export type JaxLayoutPolicy = {
+  keepFocus: boolean
+  avoidOverlap: boolean
+  dockPreviousWindows: boolean
+  allowFullscreen: boolean
+}
 
 export type JaxEvent =
   | { type: "user.message"; payload: { text: string; timestamp: number; source: "voice" | "keyboard" | "shortcut" } }
@@ -20,7 +30,9 @@ export type JaxEvent =
   | { type: "screen.patch"; payload: Partial<JaxScreen> & { id: string } }
   | { type: "screen.open"; payload: { id: string; kind: JaxScreen["kind"]; title: string; url?: string } }
   | { type: "screen.close"; payload: { id: string } }
-  | { type: "tool.request"; payload: { tool: JaxTool; input: Record<string, unknown>; requestId: string } }
+  | { type: "screen.intent"; payload: { intent: JaxWindowIntent; screenId: string; layout?: Partial<JaxLayoutPolicy> } }
+  | { type: "tool.request"; payload: { tool: JaxTool; input: Record<string, unknown>; requestId: string; requiresApproval?: boolean } }
+  | { type: "voice.configure"; payload: { mode: JaxVoiceMode; locale: string; enabled: boolean } }
   | { type: "tool.result"; payload: { tool: JaxTool; requestId: string; status: "started" | "success" | "error"; data?: unknown; error?: string } }
   | { type: "memory.sync"; payload: { namespace: string; status: "queued" | "syncing" | "ready"; count?: number } }
 
