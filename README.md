@@ -24,7 +24,7 @@ Para ativar o chat, copie `.env.example` para `.env.local`, defina `JAX_OWNER_PA
 
 ## APK
 
-O diretório `android/` contém um shell WebView que abre a URL HTTPS publicada do JAX. O workflow **APK Android de teste** gera um APK debug ao enviar a branch `codex/jax-agent-apk`; a URL pode ser informada ao abrir o app ou opcionalmente no disparo manual. Não há servidor embutido, modo offline ou controle irrestrito do Android. Uso em Chrome/PWA continua disponível e preserva o PC.
+O workflow **APK Android de teste** empacota a interface no APK debug. Ao instalar, abra Configurações no JAX e informe sua própria chave de Gemini, OpenRouter ou outro provedor. Conversas, preferências e chaves ficam nos dados privados do app nesse aparelho; as chamadas às APIs de IA e busca exigem internet. Não precisa de Termux, hospedagem ou URL do JAX. O APK não controla outros aplicativos nem oferece respostas faladas nativas. O uso em navegador/PC continua disponível com o backend separado.
 
 ## Estado real
 

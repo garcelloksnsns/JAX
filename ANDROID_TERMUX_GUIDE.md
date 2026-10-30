@@ -1,5 +1,7 @@
 # JAX no Android, APK, Termux e PC
 
+**APK local:** o workflow da branch `codex/jax-agent-apk` agora empacota a interface no APK. Não é necessário Termux nem URL publicada para essa edição. Cada pessoa informa suas chaves nas Configurações do app. A interface e a memória funcionam localmente; IA, pesquisa e vídeos precisam de internet e das chaves correspondentes. As instruções de URL e WebView abaixo descrevem a edição anterior e ficam como referência para servir o projeto no PC/Termux.
+
 A interface web é compartilhada: não existe uma versão mobile que substitua o PC. A implementação não é um aplicativo React Native; dependências legadas Expo/React Native do template não constituem um build nativo. O projeto Android desta entrega é um shell WebView separado, sem JavaScript bridge nativa.
 
 ## 1. Usar agora no Android e PC
@@ -12,7 +14,7 @@ No PC, janelas continuam arrastáveis e redimensionáveis; sidebar, dock, voz e 
 
 1. Integrar a branch de trabalho por PR no repositório correto, após revisão. Um workflow novo precisa estar na branch padrão para aparecer como workflow manual no GitHub.
 2. Publicar o frontend Next.js e copiar sua URL HTTPS real. Não usar URL de preview com autenticação que exija sair da origem; o shell só mantém a origem configurada dentro do WebView.
-3. No GitHub, abrir **Actions → APK Android de teste → Run workflow**; selecionar a branch desejada. `app_url` é opcional: se ficar vazio, o APK pedirá a URL HTTPS na primeira abertura. Não inclua tokens, usuário, senha, query ou fragmento.
+3. No GitHub, abrir **Actions → APK Android de teste → Run workflow**; selecionar a branch `codex/jax-agent-apk`. O APK dessa branch já inclui a interface e não pede URL.
 4. O workflow instala JDK 17, Gradle 8.13 e Android SDK 35; executa `assembleDebug` e `lintDebug`.
 5. Se passar, baixar o artifact `jax-android-debug`; extrair `app-debug.apk` e instalar no Android aceitando a instalação dessa fonte conscientemente.
 

@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { jaxFetch } from "@/lib/jax-http"
 
 type Video = { id: string; title: string; channel: string; url: string; embedUrl: string }
 
@@ -10,7 +11,7 @@ export function JaxVideoPanel({ query, url, embedUrl, onSelect }: { query: strin
   useEffect(() => {
     if (embedUrl || !query) return
     const controller = new AbortController()
-    fetch(`/api/jax/videos?q=${encodeURIComponent(query)}`, { signal: controller.signal, cache: "no-store" })
+    jaxFetch(`/api/jax/videos?q=${encodeURIComponent(query)}`, { signal: controller.signal, cache: "no-store" })
       .then(async (response) => { const data = await response.json(); if (!response.ok) throw new Error(data.error || "Busca indisponível."); return data })
       .then((data) => { setVideos(data.videos); setError("") })
       .catch((cause) => { if (!controller.signal.aborted) setError(cause.message) })

@@ -21,19 +21,37 @@ import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.webkit.WebResourceResponse;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.EditText;
 import android.widget.Toast;
 import java.util.Arrays;
 import java.net.URI;
+import java.net.URL;
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.Iterator;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import javax.net.ssl.HttpsURLConnection;
+import org.json.JSONObject;
+import androidx.webkit.WebViewAssetLoader;
+import androidx.webkit.WebViewCompat;
+import androidx.webkit.WebViewFeature;
 
 public final class MainActivity extends Activity {
     private WebView web;
     private PermissionRequest audioRequest;
     private ValueCallback<Uri[]> fileRequest;
     private boolean awaitingAudioPermission;
-    private Uri home;
+    private final Uri home = Uri.parse("https://appassets.androidplatform.net/index.html");
+    private final ExecutorService network = Executors.newFixedThreadPool(2);
+    private WebViewAssetLoader assets;
     private static final int AUDIO = 10;
     private static final int FILE = 11;
 
@@ -41,29 +59,55 @@ public final class MainActivity extends Activity {
     private boolean trusted(Uri uri) {
         return home != null && "https".equalsIgnoreCase(uri.getScheme()) && home.getHost().equalsIgnoreCase(uri.getHost()) && port(uri) == port(home) && uri.getUserInfo() == null;
     }
-    private Uri validHome(String value) {
+    private static final Set<String> API_HOSTS = new HashSet<>(Arrays.asList("api.openai.com", "generativelanguage.googleapis.com", "openrouter.ai", "api.anthropic.com", "api.groq.com", "api.deepseek.com", "api.search.brave.com", "api.tavily.com", "www.googleapis.com"));
+    private void nativeRequest(String raw, androidx.webkit.JavaScriptReplyProxy reply) {
+        String id = "";
         try {
-            URI parsed = new URI(value.trim());
-            if (!"https".equalsIgnoreCase(parsed.getScheme()) || parsed.getHost() == null || parsed.getUserInfo() != null || parsed.getQuery() != null || parsed.getFragment() != null) return null;
-            return Uri.parse(parsed.toString());
-        } catch (Exception ignored) { return null; }
-    }
-    private void configureHome() {
-        EditText input = new EditText(this);
-        input.setSingleLine(true);
-        input.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_URI);
-        input.setHint("https://seu-jax-publicado.example/");
-        if (home != null) input.setText(home.toString());
-        new AlertDialog.Builder(this).setTitle("URL HTTPS do JAX")
-            .setMessage("Informe a URL onde o JAX está publicado. O APK precisa de conexão com esse servidor.")
-            .setView(input).setNegativeButton("Cancelar", null)
-            .setPositiveButton("Salvar", (dialog, which) -> {
-                Uri selected = validHome(input.getText().toString());
-                if (selected == null) { Toast.makeText(this, "Informe uma URL HTTPS sem usuário, senha, query ou fragmento.", Toast.LENGTH_LONG).show(); configureHome(); return; }
-                home = selected;
-                getPreferences(0).edit().putString("app_url", selected.toString()).apply();
-                web.loadUrl(selected.toString());
-            }).show();
+            if (raw.length() > 120000) throw new IllegalArgumentException("Pedido muito grande.");
+            JSONObject request = new JSONObject(raw);
+            id = request.optString("id", "");
+            final String requestId = id;
+            String urlText = request.optString("url", "");
+            URI uri = new URI(urlText);
+            if (!"https".equalsIgnoreCase(uri.getScheme()) || !API_HOSTS.contains(uri.getHost()) || uri.getUserInfo() != null || uri.getFragment() != null) throw new IllegalArgumentException("Destino não autorizado.");
+            String method = request.optString("method", "GET");
+            if (!"GET".equals(method) && !"POST".equals(method)) throw new IllegalArgumentException("Método não autorizado.");
+            network.execute(() -> {
+                JSONObject result = new JSONObject();
+                HttpsURLConnection connection = null;
+                try {
+                    result.put("id", requestId);
+                    connection = (HttpsURLConnection) new URL(urlText).openConnection();
+                    connection.setInstanceFollowRedirects(false);
+                    connection.setConnectTimeout(12000);
+                    connection.setReadTimeout(30000);
+                    connection.setRequestMethod(method);
+                    JSONObject headers = request.optJSONObject("headers");
+                    if (headers != null) {
+                        Set<String> allowed = new HashSet<>(Arrays.asList("authorization", "content-type", "x-api-key", "x-goog-api-key", "anthropic-version", "x-title", "accept", "x-subscription-token"));
+                        Iterator<String> names = headers.keys();
+                        while (names.hasNext()) { String name = names.next(); if (allowed.contains(name.toLowerCase(java.util.Locale.ROOT))) connection.setRequestProperty(name, headers.optString(name)); }
+                    }
+                    if ("POST".equals(method)) {
+                        byte[] payload = request.optString("body", "").getBytes(StandardCharsets.UTF_8);
+                        if (payload.length > 100000) throw new IllegalArgumentException("Corpo muito grande.");
+                        connection.setDoOutput(true);
+                        try (OutputStream output = connection.getOutputStream()) { output.write(payload); }
+                    }
+                    int status = connection.getResponseCode();
+                    InputStream input = status >= 400 ? connection.getErrorStream() : connection.getInputStream();
+                    ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+                    if (input != null) try (InputStream stream = input) {
+                        byte[] buffer = new byte[8192]; int n;
+                        while ((n = stream.read(buffer)) != -1) { if (bytes.size() + n > 2000000) throw new IllegalArgumentException("Resposta muito grande."); bytes.write(buffer, 0, n); }
+                    }
+                    result.put("status", status);
+                    result.put("body", bytes.toString("UTF-8"));
+                } catch (Exception error) { try { result.put("status", 599); result.put("body", "{\"error\":\"Falha de rede ou destino não autorizado.\"}"); } catch (Exception ignored) {} }
+                finally { if (connection != null) connection.disconnect(); }
+                reply.postMessage(result.toString());
+            });
+        } catch (Exception error) { try { JSONObject result = new JSONObject(); result.put("id", id); result.put("status", 400); result.put("body", "{\"error\":\"Pedido inválido.\"}"); reply.postMessage(result.toString()); } catch (Exception ignored) {} }
     }
     private void openExternal(Uri uri) {
         String scheme = uri.getScheme();
@@ -76,7 +120,6 @@ public final class MainActivity extends Activity {
     }
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
-        home = validHome(getPreferences(0).getString("app_url", BuildConfig.APP_URL));
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(Color.rgb(8, 12, 18));
@@ -88,15 +131,10 @@ public final class MainActivity extends Activity {
             return insets;
         });
         Button browser = new Button(this);
-        browser.setText("Abrir no navegador · melhor suporte à voz");
+        browser.setText("JAX offline na interface · internet para IA");
         browser.setTextSize(12);
-        browser.setOnClickListener(view -> { if (home != null) openExternal(home); else configureHome(); });
+        browser.setEnabled(false);
         root.addView(browser, new LinearLayout.LayoutParams(-1, -2));
-        Button configure = new Button(this);
-        configure.setText("Configurar URL do JAX");
-        configure.setTextSize(12);
-        configure.setOnClickListener(view -> configureHome());
-        root.addView(configure, new LinearLayout.LayoutParams(-1, -2));
         web = new WebView(this);
         web.setBackgroundColor(Color.rgb(8, 12, 18));
         root.addView(web, new LinearLayout.LayoutParams(-1, 0, 1));
@@ -112,9 +150,16 @@ public final class MainActivity extends Activity {
         settings.setMediaPlaybackRequiresUserGesture(true);
         settings.setSupportMultipleWindows(true);
         settings.setJavaScriptCanOpenWindowsAutomatically(false);
+        assets = new WebViewAssetLoader.Builder().setDomain("appassets.androidplatform.net").addPathHandler("/", new WebViewAssetLoader.AssetsPathHandler(this)).build();
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
+            WebViewCompat.addWebMessageListener(web, "jaxNative", new HashSet<>(Arrays.asList("https://appassets.androidplatform.net")), (view, message, sourceOrigin, isMainFrame, replyProxy) -> {
+                if (isMainFrame && message.getData() != null) nativeRequest(message.getData(), replyProxy);
+            });
+        }
         CookieManager.getInstance().setAcceptThirdPartyCookies(web, false);
         WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG);
         web.setWebViewClient(new WebViewClient() {
+            @Override public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) { return assets.shouldInterceptRequest(request.getUrl()); }
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 if (!request.isForMainFrame()) return false;
                 if (trusted(request.getUrl())) return false;
@@ -156,7 +201,7 @@ public final class MainActivity extends Activity {
             }
         });
         if (Build.VERSION.SDK_INT >= 33) getOnBackInvokedDispatcher().registerOnBackInvokedCallback(0, this::goBack);
-        if (home != null) web.loadUrl(home.toString()); else configureHome();
+        web.loadUrl(home.toString());
     }
     private void confirmAudio() {
         PermissionRequest request = audioRequest;
@@ -195,6 +240,7 @@ public final class MainActivity extends Activity {
         if (fileRequest != null) fileRequest.onReceiveValue(null);
         web.stopLoading();
         web.destroy();
+        network.shutdownNow();
         super.onDestroy();
     }
 }

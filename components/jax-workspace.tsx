@@ -15,6 +15,8 @@ import { JaxSettings, type ModelProvider, type RememberedPreference } from "@/co
 import { JaxSearchPanel } from "@/components/jax-search-panel"
 import { JaxVideoPanel } from "@/components/jax-video-panel"
 import { JaxImagePanel } from "@/components/jax-image-panel"
+import { jaxFetch, isStandalone } from "@/lib/jax-http"
+import { JaxStandaloneSettings, type LocalKeyStatus } from "@/components/jax-standalone-settings"
 
 type Message = { id: string; role: "user" | "jax"; text: string }
 type AgentAction = { type: "open"; kind: "search" | "image" | "video"; query: string; image?: { title: string; imageUrl: string; sourceUrl: string }; video?: { id: string; title: string; url: string; embedUrl: string } } | { type: "window"; id: string; operation: "resize" | "minimize" | "maximize" | "restore" | "close"; width?: number; height?: number }
@@ -35,6 +37,7 @@ export function JaxWorkspace() {
   const [model, setModel] = useState("")
   const [backendError, setBackendError] = useState("")
   const [preferences, setPreferences] = useState<RememberedPreference[]>([])
+  const [localKeys, setLocalKeys] = useState<LocalKeyStatus[]>([])
   const root = useRef<HTMLElement>(null)
   const desktop = useRef<HTMLDivElement>(null)
   const layout = useJaxLayout(root, desktop)
@@ -53,16 +56,17 @@ export function JaxWorkspace() {
 
   const refreshBackend = useCallback(async () => {
     try {
-      const sessionResponse = await fetch("/api/jax/session", { cache: "no-store" })
+      const sessionResponse = await jaxFetch("/api/jax/session", { cache: "no-store" })
       const session = await sessionResponse.json() as { configured: boolean; authenticated: boolean }
       setBackendConfigured(session.configured)
       setAuthenticated(session.authenticated)
       if (!session.authenticated) return
-      const [providersResponse, chatResponse, memoryResponse] = await Promise.all([fetch("/api/jax/providers", { cache: "no-store" }), fetch("/api/jax/chat", { cache: "no-store" }), fetch("/api/jax/memory", { cache: "no-store" })])
+      const [providersResponse, chatResponse, memoryResponse] = await Promise.all([jaxFetch("/api/jax/providers", { cache: "no-store" }), jaxFetch("/api/jax/chat", { cache: "no-store" }), jaxFetch("/api/jax/memory", { cache: "no-store" })])
       if (!providersResponse.ok || !chatResponse.ok || !memoryResponse.ok) throw new Error("Não foi possível carregar a sessão.")
       const available = (await providersResponse.json() as { providers: ModelProvider[] }).providers
       const history = (await chatResponse.json() as { messages: { id: string; role: "user" | "assistant"; text: string }[] }).messages
       setPreferences((await memoryResponse.json() as { preferences: RememberedPreference[] }).preferences)
+      if (isStandalone) setLocalKeys((await (await jaxFetch("/api/jax/keys")).json() as { keys: LocalKeyStatus[] }).keys)
       setProviders(available)
       setProvider((previous) => available.find((item) => item.id === previous && item.configured)?.id || available.find((item) => item.configured)?.id || "")
       setMessages(history.map((item) => ({ id: item.id, role: item.role === "assistant" ? "jax" : "user", text: item.text })))
@@ -74,14 +78,14 @@ export function JaxWorkspace() {
 
   async function login(password: string) {
     try {
-      const response = await fetch("/api/jax/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password }) })
+      const response = await jaxFetch("/api/jax/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password }) })
       if (!response.ok) { setBackendError((await response.json() as { error: string }).error); return }
       await refreshBackend()
     } catch { setBackendError("Não foi possível entrar.") }
   }
 
   async function logout() {
-    try { await fetch("/api/jax/logout", { method: "POST" }) } catch { /* A interface ainda encerra a sessão local. */ }
+    try { await jaxFetch("/api/jax/logout", { method: "POST" }) } catch { /* A interface ainda encerra a sessão local. */ }
     setAuthenticated(false)
     setProviders([])
     setProvider("")
@@ -93,10 +97,16 @@ export function JaxWorkspace() {
 
   async function forget(id: string) {
     try {
-      const response = await fetch("/api/jax/memory", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) })
+      const response = await jaxFetch("/api/jax/memory", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) })
       if (response.ok) setPreferences((items) => items.filter((item) => item.id !== id))
       else setBackendError("Não foi possível remover a preferência.")
     } catch { setBackendError("Não foi possível remover a preferência.") }
+  }
+
+  async function saveLocalKey(id: string, key: string) {
+    const response = await jaxFetch("/api/jax/keys", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, key }) })
+    if (!response.ok) throw new Error("Não foi possível salvar a chave.")
+    await refreshBackend()
   }
 
   async function askBackend(text: string) {
@@ -106,7 +116,7 @@ export function JaxWorkspace() {
     const area = layoutRef.current.normal
     const screen = { viewport: { width: window.innerWidth, height: window.innerHeight }, activeWindowId: [...windows].filter((item) => !item.minimized && !item.closing).sort((a, b) => b.z - a.z)[0]?.id || null, windows: windows.map((item) => ({ id: item.id, title: item.title, x: area.x + item.x, y: area.y + item.y, width: item.width, height: item.height, minimized: item.minimized, maximized: item.maximized, z: item.z, videoId: item.embedUrl?.match(/\/embed\/([\w-]{11})/)?.[1] })) }
     try {
-      const response = await fetch("/api/jax/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, provider, screen, ...(model.trim() ? { model: model.trim() } : {}) }) })
+      const response = await jaxFetch("/api/jax/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, provider, screen, ...(model.trim() ? { model: model.trim() } : {}) }) })
       const data = await response.json() as { messages?: { text: string; role: string }[]; actions?: AgentAction[]; remembered?: RememberedPreference | null; error?: string }
       if (!response.ok) { respond(data.error || "Não foi possível obter resposta do modelo."); return }
       if (data.remembered) setPreferences((items) => [data.remembered!, ...items])
@@ -353,7 +363,7 @@ export function JaxWorkspace() {
     <div className="jax-minimal-desktop" data-jax-desktop ref={desktop}>
       <section className="jax-presence" aria-label="Assistente JAX"><div className="jax-minimal-orb" data-jax-element="orb"><ParticleOrb state={state} /></div><div className="jax-presence-status">{voice.mode !== "off" ? "Estou ouvindo" : processing ? "Processando comando" : messages.length ? "Com você, Luiz" : "O que vamos fazer, Luiz?"}</div></section>
       <section className="jax-minimal-conversation" aria-label="Conversa com JAX"><div ref={transcript} className="jax-minimal-transcript" aria-live="polite">{messages.map((message) => <div key={message.id} className={`jax-minimal-message ${message.role}`}><span>{message.role === "jax" ? "JAX" : "VOCÊ"}</span><p>{message.text}</p></div>)}</div>{voice.partial && <p className="jax-partial" aria-live="polite">{voice.partial}</p>}<form className="jax-minimal-composer" onSubmit={submit}><textarea rows={1} aria-label="Comando para JAX" placeholder="Mande qualquer coisa…" value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229) { event.preventDefault(); execute(draft) } }} /><div className="jax-input-actions"><button type="button" aria-label={voice.mode === "single" ? "Parar comando por voz" : "Dar um comando por voz"} aria-pressed={voice.mode === "single"} title="Um comando por voz" onClick={() => voice.toggle("single")}>{voice.mode === "single" ? <Square size={16} /> : <Mic size={18} />}</button><button type="button" aria-label={voice.mode === "continuous" ? "Parar conversação contínua" : "Iniciar conversação contínua"} aria-pressed={voice.mode === "continuous"} title="Escuta contínua até você parar" onClick={() => voice.toggle("continuous")}>{voice.mode === "continuous" ? <Square size={16} /> : <AudioLines size={19} />}</button><button type="submit" className="jax-submit" aria-label="Enviar comando" disabled={!draft.trim()}><ArrowUp size={18} /></button></div></form>{voice.mode === "continuous" && <button className="jax-stop-listening" onClick={voice.stop}>Microfone ativo · toque para parar</button>}</section>
-      {windows.map((item) => <JaxWindow key={item.id} item={item} layout={layout} patch={(update) => patch(item.id, update)} close={() => closeWindow(item.id)} focus={() => patch(item.id, { z: ++z.current })}>{item.id === "settings" ? <JaxSettings configured={backendConfigured} authenticated={authenticated} providers={providers} provider={provider} model={model} preferences={preferences} onProvider={(id) => { setProvider(id); setModel("") }} onModel={setModel} onLogin={login} onLogout={logout} onForget={forget} error={backendError} /> : item.id === "youtube" ? <JaxVideoPanel query={item.query} url={item.url} embedUrl={item.embedUrl} onSelect={(video) => patch(item.id, { title: video.title, query: video.title, url: video.url, embedUrl: video.embedUrl })} /> : item.id === "search" || item.id === "search-agent" || item.id === "news" ? <JaxSearchPanel query={item.query} news={item.id === "news"} url={item.url} /> : item.id === "image-agent" ? <JaxImagePanel title={item.query} imageUrl={item.imageUrl} sourceUrl={item.sourceUrl} /> : capabilities.some((capability) => capability.id === item.id) ? <JaxCapabilityContent id={item.id} onReply={respond} /> : ["projects", "whatsapp", "install"].includes(item.id) ? <JaxResourcePanel id={item.id} /> : undefined}</JaxWindow>)}
+      {windows.map((item) => <JaxWindow key={item.id} item={item} layout={layout} patch={(update) => patch(item.id, update)} close={() => closeWindow(item.id)} focus={() => patch(item.id, { z: ++z.current })}>{item.id === "settings" ? isStandalone ? <JaxStandaloneSettings providers={providers} provider={provider} model={model} preferences={preferences} keyStatuses={localKeys} onProvider={(id) => { setProvider(id); setModel("") }} onModel={setModel} onSaveKey={saveLocalKey} onForget={forget} error={backendError} /> : <JaxSettings configured={backendConfigured} authenticated={authenticated} providers={providers} provider={provider} model={model} preferences={preferences} onProvider={(id) => { setProvider(id); setModel("") }} onModel={setModel} onLogin={login} onLogout={logout} onForget={forget} error={backendError} /> : item.id === "youtube" ? <JaxVideoPanel query={item.query} url={item.url} embedUrl={item.embedUrl} onSelect={(video) => patch(item.id, { title: video.title, query: video.title, url: video.url, embedUrl: video.embedUrl })} /> : item.id === "search" || item.id === "search-agent" || item.id === "news" ? <JaxSearchPanel query={item.query} news={item.id === "news"} url={item.url} /> : item.id === "image-agent" ? <JaxImagePanel title={item.query} imageUrl={item.imageUrl} sourceUrl={item.sourceUrl} /> : capabilities.some((capability) => capability.id === item.id) ? <JaxCapabilityContent id={item.id} onReply={respond} /> : ["projects", "whatsapp", "install"].includes(item.id) ? <JaxResourcePanel id={item.id} /> : undefined}</JaxWindow>)}
       {windows.some((item) => item.minimized) && <nav className="jax-window-dock" aria-label="Janelas minimizadas">{windows.filter((item) => item.minimized).map((item) => <button key={item.id} onClick={() => patch(item.id, { minimized: false, z: ++z.current })}>{item.title}</button>)}</nav>}
     </div>
     {full && latest && noticeVisible && <JaxFloatingReply text={latest.text} area={layout.fullscreen} onDismiss={() => setNoticeVisible(false)} />}

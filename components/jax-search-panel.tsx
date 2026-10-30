@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { jaxFetch } from "@/lib/jax-http"
 
 type Result = { title: string; url: string; snippet: string; source: string }
 
@@ -10,7 +11,7 @@ export function JaxSearchPanel({ query, news, url }: { query: string; news: bool
   const [error, setError] = useState("")
   useEffect(() => {
     const controller = new AbortController()
-    fetch(`/api/jax/search?q=${encodeURIComponent(query)}${news ? "&type=news" : ""}`, { signal: controller.signal, cache: "no-store" })
+    jaxFetch(`/api/jax/search?q=${encodeURIComponent(query)}${news ? "&type=news" : ""}`, { signal: controller.signal, cache: "no-store" })
       .then(async (response) => { const data = await response.json(); if (!response.ok) throw new Error(data.error || "Busca indisponível."); return data })
       .then((data) => { setResults(data.results); setProvider(data.provider); setError("") })
       .catch((cause) => { if (!controller.signal.aborted) setError(cause.message) })

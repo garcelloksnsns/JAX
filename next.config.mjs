@@ -1,5 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  ...(process.env.JAX_STATIC_EXPORT === "1" ? { output: "export" } : {}),
   images: {
     unoptimized: true,
   },
