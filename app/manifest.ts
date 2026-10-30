@@ -1,5 +1,7 @@
 import type { MetadataRoute } from "next"
 
+export const dynamic = "force-static"
+
 export default function manifest(): MetadataRoute.Manifest {
   return {
     name: "JAX · Seu espaço", short_name: "JAX", description: "Seu workspace de conversa no Android e no PC.",
