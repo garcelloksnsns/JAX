@@ -31,7 +31,20 @@ export function useJaxVoice(onCommand: (text: string) => void, onError: (message
     setPartial("")
   }, [])
 
+  useEffect(() => {
+    const suspend = () => {
+      if (desiredMode.current === "off") return
+      stop()
+      callbacks.current.onError("Escuta pausada ao sair do JAX. Volte e ative o microfone novamente; não escuto em segundo plano.")
+    }
+    const visibility = () => { if (document.hidden) suspend() }
+    document.addEventListener("visibilitychange", visibility)
+    window.addEventListener("pagehide", suspend)
+    return () => { document.removeEventListener("visibilitychange", visibility); window.removeEventListener("pagehide", suspend) }
+  }, [stop])
+
   function toggle(next: Exclude<VoiceMode, "off">) {
+    if (document.hidden) return
     if (desiredMode.current === next) { stop(); return }
     stop()
     const Constructor = (window as SpeechWindow).SpeechRecognition ?? (window as SpeechWindow).webkitSpeechRecognition
@@ -67,7 +80,7 @@ export function useJaxVoice(onCommand: (text: string) => void, onError: (message
     engine.onend = () => {
       if (desiredMode.current === "continuous" && recognition.current === engine) {
         restart.current = setTimeout(() => {
-          if (desiredMode.current !== "continuous") return
+          if (desiredMode.current !== "continuous" || document.hidden) { stop(); return }
           try { engine.start() } catch { stop(); callbacks.current.onError("Não foi possível retomar a escuta. Ative o microfone novamente.") }
         }, 300)
       } else if (recognition.current === engine) stop()

@@ -12,7 +12,7 @@ export type JaxScreen = {
   visible: boolean
 }
 
-export type JaxTool = "google.search" | "google.news" | "youtube.open" | "calendar.list" | "codex.execute" | "github.inspect" | "email.draft" | "email.send" | "memory.query" | "browser.open" | "browser.inspect" | "browser.click" | "screen.capture" | "terminal.execute" | "files.read" | "files.mkdir" | "files.move" | "files.delete" | "documents.extract"
+export type JaxTool = "projects.list" | "whatsapp.draft" | "whatsapp.send" | "google.search" | "google.news" | "youtube.open" | "calendar.list" | "codex.execute" | "github.inspect" | "email.draft" | "email.send" | "memory.query" | "browser.open" | "browser.inspect" | "browser.click" | "screen.capture" | "terminal.execute" | "files.read" | "files.mkdir" | "files.move" | "files.delete" | "documents.extract"
 
 export type JaxPermission = {
   capability: JaxTool

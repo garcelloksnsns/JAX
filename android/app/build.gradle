@@ -1,0 +1,29 @@
+import groovy.json.JsonOutput
+
+plugins { id 'com.android.application' }
+
+String appUrl = providers.gradleProperty('appUrl').getOrElse('')
+URI parsedUrl
+try { parsedUrl = appUrl ? new URI(appUrl) : null } catch (Exception ignored) { throw new GradleException('appUrl deve ser uma URL HTTPS válida.') }
+if (parsedUrl && (parsedUrl.scheme != 'https' || !parsedUrl.host || parsedUrl.userInfo || parsedUrl.fragment || parsedUrl.query)) {
+    throw new GradleException('Informe -PappUrl=https://seu-jax-publicado.example/ sem credenciais, query ou fragmento. O APK não inclui servidor.')
+}
+
+android {
+    namespace 'app.jax.workspace'
+    compileSdk 35
+    defaultConfig {
+        applicationId 'app.jax.workspace'
+        minSdk 26
+        targetSdk 35
+        versionCode 1
+        versionName '0.1.0'
+        buildConfigField 'String', 'APP_URL', JsonOutput.toJson(appUrl)
+    }
+    buildFeatures { buildConfig true }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    buildTypes { release { minifyEnabled false } }
+}

@@ -1,0 +1,77 @@
+.jax-minimal {
+  position: fixed;
+  left: var(--jax-vx, 0px);
+  top: var(--jax-vy, 0px);
+  width: var(--jax-vw, 100%);
+  height: var(--jax-vh, 100dvh);
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+}
+.jax-minimal-header { flex: 0 0 60px; position: relative; z-index: 130; background: #080c12b3; }
+.jax-minimal-header > button, .jax-sidebar-heading button { width: 44px; height: 44px; flex: 0 0 44px; }
+.jax-minimal-desktop { flex: 1; height: auto; min-height: 0; width: 100%; padding-bottom: 12px; }
+.jax-presence { min-height: 0; flex: 1 1 0; }
+.jax-minimal-conversation { flex: 0 1 auto; max-height: 44%; min-height: 64px; margin-bottom: 0; }
+.jax-minimal-composer { flex-shrink: 0; }
+.jax-minimal-composer textarea { resize: none; }
+.jax-window-dock { position: relative; flex: 0 0 48px; bottom: auto; margin-top: 8px; width: min(100%, 660px); min-height: 0; overflow-x: auto; overflow-y: hidden; flex-wrap: nowrap; justify-content: flex-start; align-items: center; scrollbar-width: thin; pointer-events: auto; }
+.jax-window-dock button { min-height: 44px; white-space: nowrap; flex-shrink: 0; font-size: 12px; }
+.jax-floating-window { min-width: 0; min-height: 0; max-width: none; }
+.jax-minimal[data-reflowing="true"] .jax-floating-window,
+.jax-minimal[data-reflowing="true"] .jax-floating-dialog { transition: none; }
+.jax-floating-title { min-height: 48px; height: 48px; flex-basis: 48px; padding-left: 12px; gap: 4px; }
+.jax-floating-title strong { flex: 1; min-width: 0; font-size: 12px; }
+.jax-window-actions { gap: 0; }
+.jax-window-actions > button, .jax-window-actions > a { width: 44px; height: 44px; }
+.jax-floating-body { min-height: 0; flex: 1; overflow: auto; overscroll-behavior: contain; }
+.jax-window-resize { width: 44px; height: 44px; display: grid; place-items: center; touch-action: none; }
+.jax-floating-dialog { display: flex; flex-direction: column; overflow: hidden; }
+.jax-floating-dialog header { flex-shrink: 0; padding: 0 8px 0 14px; align-items: center; min-height: 44px; }
+.jax-floating-dialog button { width: 44px; height: 44px; display: grid; place-items: center; color: var(--jax-text); }
+.jax-floating-dialog p { min-height: 0; margin: 0; overscroll-behavior: contain; }
+.jax-sidebar-dialog { position: fixed; inset: var(--jax-vy, 0px) auto auto var(--jax-vx, 0px); width: min(320px, calc(var(--jax-vw, 100vw) - 28px)); height: var(--jax-vh, 100dvh); max-height: none; max-width: none; padding: 0; margin: 0; border: 0; background: transparent; color: var(--jax-text); overflow: visible; }
+.jax-sidebar-dialog::backdrop { background: #0009; backdrop-filter: blur(4px); }
+.jax-sidebar-dialog .jax-minimal-sidebar { position: static; width: 100%; height: 100%; padding: max(16px, env(safe-area-inset-top)) 20px max(24px, env(safe-area-inset-bottom)); overflow: auto; overscroll-behavior: contain; }
+.jax-minimal-sidebar > * { flex-shrink: 0; }
+.jax-capability-nav button, .jax-saved-window { min-height: 48px; font-size: 13px; }
+.jax-sidebar-heading { position: sticky; top: -1px; background: #0f1921; z-index: 1; }
+.jax-capability-content h2 { font-size: 19px; line-height: 1.35; margin: 0; }
+.jax-capability-content p { margin: 0; }
+.jax-capability-content .jax-resource-link, .jax-resource-link { min-height: 44px; display: inline-flex; align-items: center; gap: 8px; }
+.jax-capability-content input, .jax-capability-content textarea, .jax-capability-content select { font: inherit; }
+.jax-file-picker input { max-width: 100%; }
+.jax-image-preview { width: 100%; max-height: 240px; object-fit: contain; border-radius: 8px; background: var(--background); }
+.jax-stop-listening { min-height: 44px; flex-shrink: 0; }
+.jax-minimal.is-mobile .jax-minimal-header { gap: 10px; padding-inline: 8px; }
+.jax-minimal.is-mobile .jax-minimal-desktop { padding: 0 12px 10px; }
+.jax-minimal.is-mobile .jax-presence { justify-content: center; }
+.jax-minimal.is-mobile .jax-minimal-conversation { max-height: 42%; width: 100%; }
+.jax-minimal.is-mobile .jax-minimal-composer { padding: 7px 6px 7px 14px; border-radius: 20px; gap: 2px; }
+.jax-minimal.is-mobile .jax-minimal-composer textarea { font-size: 16px; padding-top: 9px; }
+.jax-minimal.is-mobile .jax-input-actions { gap: 0; }
+.jax-minimal.is-mobile .jax-input-actions button { width: 44px; height: 44px; }
+.jax-minimal.is-mobile .jax-minimal-message { gap: 8px; }
+.jax-minimal.is-mobile .jax-minimal-message p { font-size: 14px; line-height: 1.65; }
+.jax-minimal.is-mobile .jax-minimal-message > span { flex-basis: 32px; }
+.jax-minimal.is-mobile .jax-window-dock { margin-top: 6px; }
+.jax-minimal.is-mobile.has-windows .jax-presence { align-items: flex-start; justify-content: flex-end; padding-bottom: 8px; }
+.jax-minimal.is-mobile.has-windows .jax-minimal-orb { width: 60px; height: 54px; transform: none; }
+.jax-minimal.is-mobile.has-windows .jax-minimal-orb .jax-orb { width: 48px; height: 48px; }
+.jax-minimal.is-mobile.has-windows .jax-presence-status { display: none; }
+.jax-minimal.is-mobile .jax-capability-content { padding: 16px 16px 44px; font-size: 14px; }
+.jax-minimal.is-mobile .jax-capability-content input:not([type=file]), .jax-minimal.is-mobile .jax-capability-content textarea, .jax-minimal.is-mobile .jax-capability-content select { font-size: 16px; }
+.jax-minimal.is-mobile .jax-resource { padding: 18px 18px 44px; }
+.jax-minimal.is-mobile .jax-resource p { font-size: 14px; }
+.jax-minimal.is-compact .jax-minimal-header { height: 48px; flex-basis: 48px; }
+.jax-minimal.is-compact .jax-minimal-conversation { max-height: 55%; }
+.jax-minimal.is-compact .jax-minimal-orb { width: 80px; height: 68px; }
+.jax-minimal.is-compact .jax-minimal-orb .jax-orb { width: 62px; height: 62px; }
+.jax-minimal.is-compact .jax-presence-status { display: none; }
+.jax-minimal.is-compact.has-windows .jax-minimal-orb { visibility: hidden; height: 0; }
+.jax-minimal.is-compact .jax-window-dock { flex-basis: 44px; margin-top: 3px; }
+@media (pointer: coarse) { .jax-window-resize { background: #192830; border-top-left-radius: 12px; } }
+@media (max-width: 719px) { .jax-minimal-orb .jax-orb { transition: width 440ms ease, height 440ms ease; } }
+@media (prefers-reduced-motion: reduce) { .jax-minimal-orb .jax-orb { transition: none; } }

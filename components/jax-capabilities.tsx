@@ -23,10 +23,13 @@ function ScreenCapture({ onReply }: { onReply: (text: string) => void }) {
   const stream = useRef<MediaStream | null>(null)
   const [active, setActive] = useState(false)
   const [error, setError] = useState("")
+  const [image, setImage] = useState<File | null>(null)
+  const [preview, setPreview] = useState("")
+  useEffect(() => () => { if (preview) URL.revokeObjectURL(preview) }, [preview])
   function stop() { stream.current?.getTracks().forEach((track) => track.stop()); stream.current = null; if (video.current) video.current.srcObject = null; setActive(false) }
   useEffect(() => () => { stream.current?.getTracks().forEach((track) => track.stop()) }, [])
   async function start() {
-    if (!navigator.mediaDevices?.getDisplayMedia) { setError("Compartilhamento indisponível neste navegador ou contexto. Abra o app fora do preview e tente novamente."); return }
+    if (!navigator.mediaDevices?.getDisplayMedia) { setError("Este navegador não oferece captura de tela. No Android isso é comum; selecione uma captura como imagem abaixo. Captura nativa contínua exigirá um módulo Android e sua autorização."); return }
     try {
       const captured = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false })
       stream.current?.getTracks().forEach((track) => track.stop())
@@ -38,7 +41,7 @@ function ScreenCapture({ onReply }: { onReply: (text: string) => void }) {
       onReply("Compartilhamento iniciado com sua permissão. A imagem fica somente nesta prévia: análise por IA e cliques ainda não estão conectados.")
     } catch { setError("Compartilhamento cancelado, bloqueado ou indisponível. Nenhuma captura foi iniciada.") }
   }
-  return <div className="jax-capability-content"><div className="jax-capability-status">{active ? "CAPTURA LOCAL ATIVA" : "REQUER SUA PERMISSÃO"}</div><p>Você escolhe o que compartilhar. Não capturo outras telas automaticamente, não envio imagens a um backend e não clico em elementos externos.</p><video ref={video} muted playsInline className={`jax-screen-preview ${active ? "is-active" : ""}`} aria-label="Prévia da tela compartilhada" /><button className="jax-resource-link" onClick={active ? stop : start}>{active ? "Parar compartilhamento" : "Escolher tela ou janela"}</button>{error && <p role="alert">{error}</p>}</div>
+  return <div className="jax-capability-content"><div className="jax-capability-status">{active ? "CAPTURA LOCAL ATIVA" : "REQUER SUA PERMISSÃO"}</div><p>Você escolhe o que compartilhar. Não capturo outras telas automaticamente, não envio imagens a um backend e não clico em elementos externos.</p><video ref={video} muted playsInline className={`jax-screen-preview ${active ? "is-active" : ""}`} aria-label="Prévia da tela compartilhada" /><button className="jax-resource-link" onClick={active ? stop : start}>{active ? "Parar compartilhamento" : "Escolher tela ou janela"}</button>{error && <p role="alert">{error}</p>}<label className="jax-file-picker">Selecionar captura de tela<input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => { const file = event.target.files?.[0]; if (file && file.size <= 15 * 1024 * 1024 && ["image/png", "image/jpeg", "image/webp"].includes(file.type)) { setImage(file); setPreview(URL.createObjectURL(file)); setError("") } else { setImage(null); setPreview(""); if (file) setError("Selecione PNG, JPEG ou WebP de até 15 MB.") } }} /></label>{preview && <><img className="jax-image-preview" src={preview} alt="Captura selecionada para prévia local" /><small>{image?.name} · somente nesta sessão, sem análise ou upload.</small><button className="jax-resource-link" onClick={() => { setImage(null); setPreview("") }}>Remover imagem</button></>}</div>
 }
 
 function DocumentPicker() {
